@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '4aa94bb7';
+var BUILD_ID = '7788855d';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -670,7 +670,7 @@ function openAddChooser() {
   if (curClosed()) { toast(curFy() + ' is closed. Choose another year or reopen it in Settings.'); return; }
   sheetOpen(function () {
     return sheetWrap('Add', [el('h2', { text: 'Add to ' + curFy() }),
-      el('div', { class: 'tiles' },
+      el('div', { class: 'tiles three' },
         tile('INCOME', 'Income', 'Thaika, kiraya, mall'), tile('OUTFLOWS', 'Outflow', 'Zakat, charity, loans, costs'),
         tile('PAYMENTS', 'Payment to heir', 'Cash, Qurbani, adjustment'), tile('TBZ', 'Change a TBZ month', 'Months count as received unless changed'),
         el('button', { class: 'tile', type: 'button', id: 'add-TBZEXP', onclick: openTbzExpense }, svg('out'), el('b', { text: 'TBZ expense' }), el('span', { text: 'Repairs, bills: ' + (settingsOf(view()).tbz_collector || 'collector') + ' keeps less' })),
@@ -1099,19 +1099,19 @@ function setGroupInfo(k, D) {
   var fy = curFy(), set = settingsOf(D), closed = closedYears(D).indexOf(fy) >= 0;
   if (k === 'year') {
     var nOpen = D.tables.OPENING.filter(function (r) { return r.fy === fy; }).length;
-    return { title: 'Year ' + fy, sub: [closed ? 'Closed' : 'Open', set['cash_actual_' + fy] ? 'actual cash ' + groupNum_(Number(set['cash_actual_' + fy])) : 'actual cash not entered', nOpen + ' opening balance' + (nOpen === 1 ? '' : 's')].join(' · ') };
+    return { title: 'Year ' + fy, short: fy, tag: closed ? 'Closed' : set['cash_actual_' + fy] ? 'Open' : 'Cash not entered', sub: [closed ? 'Closed' : 'Open', set['cash_actual_' + fy] ? 'actual cash ' + groupNum_(Number(set['cash_actual_' + fy])) : 'actual cash not entered', nOpen + ' opening balance' + (nOpen === 1 ? '' : 's')].join(' · ') };
   }
   if (k === 'heirs') {
     var H = heirsOf(D), okSum = Math.abs(sum_(H, function (h) { return h.share; }) - 1) <= 1e-9;
-    return { title: 'Heirs and shares', sub: H.map(function (h) { return h.name + ' ' + h.shareText; }).join(', ') || 'None yet', bad: !okSum };
+    return { title: 'Heirs and shares', short: 'Heirs', tag: H.length + ' heirs', sub: H.map(function (h) { return h.name + ' ' + h.shareText; }).join(', ') || 'None yet', bad: !okSum };
   }
-  if (k === 'amounts') return { title: 'Amounts and roles', sub: (set.fixed_name || 'Fixed lease') + ' ' + (set.fixed_amount ? groupNum_(Number(set.fixed_amount)) : 'not set') + ' · custodian ' + (set.custodian || 'not set') };
+  if (k === 'amounts') return { title: 'Amounts and roles', short: 'Amounts', tag: set.fixed_amount ? groupNum_(Number(set.fixed_amount)) : 'Not set', sub: (set.fixed_name || 'Fixed lease') + ' ' + (set.fixed_amount ? groupNum_(Number(set.fixed_amount)) : 'not set') + ' · custodian ' + (set.custodian || 'not set') };
   if (k === 'rates') {
     var last = D.tables.TBZ_RATES.slice().sort(function (a, b) { return a.from_month < b.from_month ? 1 : -1; })[0];
-    return { title: (set.tbz_name || 'Monthly rent') + ' rates', sub: last ? groupNum_(Number(last.rent)) + ' from ' + fmtMonth(last.from_month) : 'No rate yet' };
+    return { title: (set.tbz_name || 'Monthly rent') + ' rates', short: 'Rent rates', tag: last ? groupNum_(Number(last.rent)) : 'None', sub: last ? groupNum_(Number(last.rent)) + ' from ' + fmtMonth(last.from_month) : 'No rate yet' };
   }
-  if (k === 'lists') return { title: 'Lists', sub: 'Sources, categories, banks and accounts' };
-  return { title: 'This phone', sub: (bioReady() ? 'Face ID on' : 'PIN only') + ' · app ' + BUILD_ID };
+  if (k === 'lists') return { title: 'Lists', short: 'Lists', tag: 'Tags', sub: 'Sources, categories, banks and accounts' };
+  return { title: 'This phone', short: 'This phone', tag: bioReady() ? 'Face ID' : 'PIN', sub: (bioReady() ? 'Face ID on' : 'PIN only') + ' · app ' + BUILD_ID };
 }
 SCREENS.settings = function () {
   var S = T.S, D = view(), cust = isCust(), set = settingsOf(D);
@@ -1121,6 +1121,7 @@ SCREENS.settings = function () {
       el('div', { class: 'top' },
         el('button', { class: 'back', type: 'button', id: 'setback', onclick: function () { T.setGroup = null; T.slide = true; render(); window.scrollTo(0, 0); } }, svg('back'), 'Settings'),
         el('div', { class: 'title small', text: info.title }), el('span')),
+      el('p', { class: 'muted', id: 'grpsub', text: info.sub }),
       SET_PAGES[T.setGroup](D, set));
   }
   var refused = S.outbox.filter(function (o) { return o.error; }).concat(S.uploads.filter(function (u) { return u.error; }));
@@ -1138,13 +1139,10 @@ SCREENS.settings = function () {
             btn('danger small', 'trash', 'Remove', function () { S.outbox = S.outbox.filter(function (x) { return x !== o; }); S.uploads = S.uploads.filter(function (x) { return x !== o; }); saveState().then(render); })));
       })) : null,
     cust ? null : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' }),
-    el('div', { class: 'card list', id: 'setgroups' }, SET_GROUPS.filter(function (g) { return cust || !g.cust; }).map(function (g) {
+    el('div', { class: 'tiles three', id: 'setgroups' }, SET_GROUPS.filter(function (g) { return cust || !g.cust; }).map(function (g) {
       var info = setGroupInfo(g.k, D);
-      return el('button', { class: 'row', type: 'button', id: 'grp-' + g.k, onclick: function () { T.setGroup = g.k; T.slide = true; render(); window.scrollTo(0, 0); } },
-        el('span', { class: 'rowic' }, svg(g.icon)),
-        el('div', { class: 'grow' }, el('b', { text: info.title }), el('div', { class: 'sm', text: info.sub })),
-        info.bad ? el('span', { class: 'chip bad', text: 'Check' }) : null,
-        el('span', { class: 'chev' }, svg('next')));
+      return el('button', { class: 'tile' + (info.bad ? ' bad' : ''), type: 'button', id: 'grp-' + g.k, title: info.sub, onclick: function () { T.setGroup = g.k; T.slide = true; render(); window.scrollTo(0, 0); } },
+        svg(g.icon), el('b', { text: info.short || info.title }), el('span', { text: info.bad ? 'Check' : info.tag || '' }));
     })));
 };
 var SET_PAGES = {

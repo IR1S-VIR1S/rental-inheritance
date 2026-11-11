@@ -1,5 +1,5 @@
 /* Rental Inheritance service worker: caches the app, never the ledger. */
-var BUILD = '4aa94bb7';
+var BUILD = '7788855d';
 var CACHE = 'ri-' + BUILD;
 var FILES = ['./', 'index.html', 'app.css', 'app.js', 'logic.js', 'calc.js', 'photos.js', 'exports.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'logo-160.png', 'logo.jpg'];
 self.addEventListener('install', function (e) {
