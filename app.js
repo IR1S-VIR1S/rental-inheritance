@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '7788855d';
+var BUILD_ID = '6d5670ae';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -1093,7 +1093,7 @@ function openCashActual() {
 // Settings: a short list of groups; each opens its own page with a Back button. "Not accepted" stays pinned on top.
 var SET_GROUPS = [
   { k: 'year', icon: 'cal', cust: true }, { k: 'heirs', icon: 'users', cust: true }, { k: 'amounts', icon: 'gear', cust: true },
-  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'phone', icon: 'faceid' }
+  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }
 ];
 function setGroupInfo(k, D) {
   var fy = curFy(), set = settingsOf(D), closed = closedYears(D).indexOf(fy) >= 0;
@@ -1139,11 +1139,13 @@ SCREENS.settings = function () {
             btn('danger small', 'trash', 'Remove', function () { S.outbox = S.outbox.filter(function (x) { return x !== o; }); S.uploads = S.uploads.filter(function (x) { return x !== o; }); saveState().then(render); })));
       })) : null,
     cust ? null : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' }),
-    el('div', { class: 'tiles three', id: 'setgroups' }, SET_GROUPS.filter(function (g) { return cust || !g.cust; }).map(function (g) {
+    cust ? el('div', { class: 'tiles three', id: 'setgroups' }, SET_GROUPS.map(function (g) {
       var info = setGroupInfo(g.k, D);
       return el('button', { class: 'tile' + (info.bad ? ' bad' : ''), type: 'button', id: 'grp-' + g.k, title: info.sub, onclick: function () { T.setGroup = g.k; T.slide = true; render(); window.scrollTo(0, 0); } },
         svg(g.icon), el('b', { text: info.short || info.title }), el('span', { text: info.bad ? 'Check' : info.tag || '' }));
-    })));
+    })) : null,
+    el('h2', null, svg('faceid'), 'This phone'),
+    SET_PAGES.phone());
 };
 var SET_PAGES = {
   year: function (D, set) {
