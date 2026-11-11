@@ -8,6 +8,7 @@
 
 | Version | App build | What changed | Tests |
 |---|---|---|---|
+| App only | 4aa94bb7 | Settings grouped: one list (Year, Heirs and shares, Amounts and roles, rent rates, Lists, This phone) with a one-line summary each; each opens its own page with Back; Not accepted stays on top; heirs see only This phone | script 166/166, loader 15/15, phone 103/103 x3 |
 | App only | b41079ad | Bank or account tags on payments to heirs (stored in the extra column as mode) and on income: Cash, ABL, MCB, Meezan Bank, HBL, UBL, Bank Alfalah, PCB transfer, JazzCash, Easypaisa, added once to the MODES list; a typed one is added too; shown in ledger, details, search and Excel | script 166/166, loader 15/15, phone 99/99 x3 |
 | App only | 4e8a8816 | Qurbani entry: total split by sevenths (others optional); paid from income directly (added to gross and the fixed lease received, never in the custodian's cash, parts non-cash), or paid by the custodian (cash) or by another heir (parts non-cash, payer credited the total); the group is deleted together | script 166/166, loader 15/15, phone 86/86 x3 |
 | App only | 0ed0d12f | TBZ months count as received automatically (tap a month on the grid to change it); TBZ expenses entered as outflows taken from TBZ, paid by the collector, charged to the pool and taken off what he keeps | script 159/159, loader 15/15, phone 70/70 x3 |

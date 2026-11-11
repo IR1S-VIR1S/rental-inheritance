@@ -177,3 +177,7 @@ button.card { appearance: none; border: 0; width: 100%; display: block; text-ali
 button.mo { appearance: none; border: 0; font: inherit; cursor: pointer; }
 .mo.set { box-shadow: inset 0 0 0 2px currentColor; }
 input.qamt { width: 130px; text-align: right; flex: none; }
+.chev { color: var(--muted); display: flex; flex: none; }
+.chev svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+#setgroups .row { padding: 14px 0; }
+.listchips { margin-top: 10px; }

@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'b41079ad';
+var BUILD_ID = '4aa94bb7';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -45,6 +45,7 @@ var ICONS = {
   check: 'M20 6L9 17l-5-5',
   x: 'M18 6L6 18|M6 6l12 12',
   back: 'M15 18l-6-6 6-6',
+  next: 'M9 18l6-6-6-6',
   down: 'M6 9l6 6 6-6',
   trash: 'M3 6h18|M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6|M10 11v6|M14 11v6|M9 6V4h6v2',
   edit: 'M12 20h9|M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
@@ -260,11 +261,11 @@ function softRender() {
   var y = window.scrollY; render(); window.scrollTo(0, y);
 }
 function renderTop() { var s = document.getElementById('syncpill'); if (s && T.S) s.replaceWith(syncPill()); }
-function go(screen) { T.screen = screen; T.sheet = null; T.slide = true; render(); window.scrollTo(0, 0); }
+function go(screen) { if (['home', 'ledger', 'summary'].indexOf(screen) >= 0) T.setGroup = null; T.screen = screen; T.sheet = null; T.slide = true; render(); window.scrollTo(0, 0); }
 function barEl() {
   return el('nav', { class: 'bar' }, BAR.map(function (b) {
     var n = b[0] === 'settings' && T.S.outbox.some(function (o) { return o.error; }) ? el('span', { class: 'dot' }) : null;
-    return el('button', { class: T.screen === b[0] ? 'on' : '', type: 'button', id: 'bar-' + b[0], 'aria-label': b[2], onclick: function () { go(b[0]); } }, svg(b[1]), b[2], n);
+    return el('button', { class: T.screen === b[0] ? 'on' : '', type: 'button', id: 'bar-' + b[0], 'aria-label': b[2], onclick: function () { if (b[0] === 'settings') T.setGroup = null; go(b[0]); } }, svg(b[1]), b[2], n);
   }));
 }
 function syncPill() {
@@ -461,7 +462,7 @@ function stripChips(R) {
   var waiting = S.outbox.filter(function (o) { return !o.error; }).length + S.uploads.filter(function (u) { return !u.error; }).length;
   var t1 = R.checks.filter(function (c) { return c.tier === 1; }).length, t2 = R.checks.filter(function (c) { return c.tier === 2; }).length;
   var out = [];
-  if (refused) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-refused', onclick: function () { go('settings'); } }, svg('alert'), refused + ' not accepted'));
+  if (refused) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-refused', onclick: function () { T.setGroup = null; go('settings'); } }, svg('alert'), refused + ' not accepted'));
   if (t1) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-t1', onclick: function () { scrollToId('checks'); } }, svg('alert'), t1 + ' to fix'));
   if (t2) out.push(el('button', { class: 'schip t2', type: 'button', id: 'chip-t2', onclick: function () { T.fold.checks = true; render(); scrollToId('checks'); } }, svg('alert'), t2 + ' to check'));
   if (waiting) out.push(el('button', { class: 'schip t3', type: 'button', id: 'chip-wait', onclick: function () { sync(); } }, svg('wait'), waiting + ' waiting to send'));
@@ -1089,10 +1090,40 @@ function openCashActual() {
     return '';
   });
 }
+// Settings: a short list of groups; each opens its own page with a Back button. "Not accepted" stays pinned on top.
+var SET_GROUPS = [
+  { k: 'year', icon: 'cal', cust: true }, { k: 'heirs', icon: 'users', cust: true }, { k: 'amounts', icon: 'gear', cust: true },
+  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'phone', icon: 'faceid' }
+];
+function setGroupInfo(k, D) {
+  var fy = curFy(), set = settingsOf(D), closed = closedYears(D).indexOf(fy) >= 0;
+  if (k === 'year') {
+    var nOpen = D.tables.OPENING.filter(function (r) { return r.fy === fy; }).length;
+    return { title: 'Year ' + fy, sub: [closed ? 'Closed' : 'Open', set['cash_actual_' + fy] ? 'actual cash ' + groupNum_(Number(set['cash_actual_' + fy])) : 'actual cash not entered', nOpen + ' opening balance' + (nOpen === 1 ? '' : 's')].join(' · ') };
+  }
+  if (k === 'heirs') {
+    var H = heirsOf(D), okSum = Math.abs(sum_(H, function (h) { return h.share; }) - 1) <= 1e-9;
+    return { title: 'Heirs and shares', sub: H.map(function (h) { return h.name + ' ' + h.shareText; }).join(', ') || 'None yet', bad: !okSum };
+  }
+  if (k === 'amounts') return { title: 'Amounts and roles', sub: (set.fixed_name || 'Fixed lease') + ' ' + (set.fixed_amount ? groupNum_(Number(set.fixed_amount)) : 'not set') + ' · custodian ' + (set.custodian || 'not set') };
+  if (k === 'rates') {
+    var last = D.tables.TBZ_RATES.slice().sort(function (a, b) { return a.from_month < b.from_month ? 1 : -1; })[0];
+    return { title: (set.tbz_name || 'Monthly rent') + ' rates', sub: last ? groupNum_(Number(last.rent)) + ' from ' + fmtMonth(last.from_month) : 'No rate yet' };
+  }
+  if (k === 'lists') return { title: 'Lists', sub: 'Sources, categories, banks and accounts' };
+  return { title: 'This phone', sub: (bioReady() ? 'Face ID on' : 'PIN only') + ' · app ' + BUILD_ID };
+}
 SCREENS.settings = function () {
-  var S = T.S, D = view(), fy = curFy(), cust = isCust();
+  var S = T.S, D = view(), cust = isCust(), set = settingsOf(D);
+  if (T.setGroup) {
+    var info = setGroupInfo(T.setGroup, D);
+    return el('div', null,
+      el('div', { class: 'top' },
+        el('button', { class: 'back', type: 'button', id: 'setback', onclick: function () { T.setGroup = null; T.slide = true; render(); window.scrollTo(0, 0); } }, svg('back'), 'Settings'),
+        el('div', { class: 'title small', text: info.title }), el('span')),
+      SET_PAGES[T.setGroup](D, set));
+  }
   var refused = S.outbox.filter(function (o) { return o.error; }).concat(S.uploads.filter(function (u) { return u.error; }));
-  var closed = closedYears(D), isClosed = closed.indexOf(fy) >= 0, set = settingsOf(D);
   return el('div', null, topBar('Settings'),
     refused.length ? el('div', { class: 'card', id: 'refused' }, el('b', { text: 'Not accepted by the workbook' }),
       refused.map(function (o) {
@@ -1106,79 +1137,114 @@ SCREENS.settings = function () {
             }) : null,
             btn('danger small', 'trash', 'Remove', function () { S.outbox = S.outbox.filter(function (x) { return x !== o; }); S.uploads = S.uploads.filter(function (x) { return x !== o; }); saveState().then(render); })));
       })) : null,
-    cust ? [
-      el('h2', null, svg('cal'), 'Year ' + fy),
+    cust ? null : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' }),
+    el('div', { class: 'card list', id: 'setgroups' }, SET_GROUPS.filter(function (g) { return cust || !g.cust; }).map(function (g) {
+      var info = setGroupInfo(g.k, D);
+      return el('button', { class: 'row', type: 'button', id: 'grp-' + g.k, onclick: function () { T.setGroup = g.k; T.slide = true; render(); window.scrollTo(0, 0); } },
+        el('span', { class: 'rowic' }, svg(g.icon)),
+        el('div', { class: 'grow' }, el('b', { text: info.title }), el('div', { class: 'sm', text: info.sub })),
+        info.bad ? el('span', { class: 'chip bad', text: 'Check' }) : null,
+        el('span', { class: 'chev' }, svg('next')));
+    })));
+};
+var SET_PAGES = {
+  year: function (D, set) {
+    var fy = curFy(), closed = closedYears(D), isClosed = closed.indexOf(fy) >= 0;
+    return [
+      el('p', { class: 'muted', text: fyLabel(fy) + '. Change the year with the year button on the other screens.' }),
       el('div', { class: 'card' },
         el('label', { class: 'switch', for: 'closedsw' }, el('span', { text: 'Closed (no more changes)' }),
           el('input', { id: 'closedsw', type: 'checkbox', checked: isClosed, onchange: function (e) {
             var list = closed.filter(function (y) { return y !== fy; }); if (e.target.checked) list.push(fy);
             saveSetting('closed_years', list.sort().join(','), 'Years that cannot be changed (comma separated)').then(function () { render(); sync(true); });
           } })),
-        btn('wide', 'cash', 'Actual bank and cash: ' + (set['cash_actual_' + fy] ? fmtRs(Number(set['cash_actual_' + fy])) : 'not entered'), openCashActual, 'cashbtn2'),
-        el('h2', { text: 'Opening balances' }),
-        el('div', { class: 'card list', id: 'openings' }, D.tables.OPENING.filter(function (r) { return r.fy === fy; }).map(function (r) {
-          return el('button', { class: 'row', type: 'button', onclick: function () { if (isClosed) return; T.prevScreen = 'settings'; openForm('OPENING', r); } },
-            el('div', { class: 'grow' }, el('b', { text: r.item }), el('div', { class: 'sm', text: r.note || '' }), r.pending ? el('div', { class: 'pending', text: r.error ? 'Not accepted: ' + r.error : 'Waiting to send' }) : null),
-            el('div', { class: amtCls(r.amount), text: groupNum_(r.amount) }));
-        })),
-        isClosed ? null : btn('wide', 'plus', 'Add opening balance', function () { T.prevScreen = 'settings'; openForm('OPENING', null, { fy: fy }); T.form.f.fy = fy; }, 'addopening')),
-      el('h2', null, svg('users'), 'Heirs and shares'),
+        el('p', { class: 'hint', text: 'A closed year can be viewed and downloaded but not changed. You can reopen it here.' })),
+      el('h2', null, svg('cash'), 'Actual bank and cash'),
+      el('div', { class: 'card list' }, el('button', { class: 'row', type: 'button', id: 'cashbtn2', onclick: openCashActual },
+        el('div', { class: 'grow' }, el('div', { text: 'Total in bank and cash now' }), el('div', { class: 'sm', text: 'Compared with what should be in hand' })),
+        el('div', { class: 'amt', text: set['cash_actual_' + fy] ? groupNum_(Number(set['cash_actual_' + fy])) : 'Not entered' }), el('span', { class: 'chev' }, svg('next')))),
+      el('h2', null, svg('list'), 'Opening balances'),
+      el('div', { class: 'card list', id: 'openings' }, D.tables.OPENING.filter(function (r) { return r.fy === fy; }).map(function (r) {
+        return el('button', { class: 'row', type: 'button', onclick: function () { if (isClosed) return; T.prevScreen = 'settings'; openForm('OPENING', r); } },
+          el('div', { class: 'grow' }, el('b', { text: r.item }), el('div', { class: 'sm', text: r.note || '' }), r.pending ? el('div', { class: 'pending', text: r.error ? 'Not accepted: ' + r.error : 'Waiting to send' }) : null),
+          el('div', { class: amtCls(r.amount), text: groupNum_(r.amount) }));
+      }).concat(D.tables.OPENING.some(function (r) { return r.fy === fy; }) ? [] : [el('p', { class: 'muted', text: 'None for ' + fy + '.' })])),
+      isClosed ? null : btn('wide', 'plus', 'Add opening balance', function () { T.prevScreen = 'settings'; openForm('OPENING', null, { fy: fy }); T.form.f.fy = fy; }, 'addopening')
+    ];
+  },
+  heirs: function (D) {
+    var bad = Math.abs(sum_(heirsOf(D), function (h) { return h.share; }) - 1) > 1e-9;
+    return [
+      bad ? el('div', { class: 'err', text: 'Shares do not add up to 1.' }) : null,
       el('div', { class: 'card list', id: 'heirlist' }, D.tables.HEIRS.map(function (h) {
         return el('button', { class: 'row', type: 'button', 'data-heir': h.name, onclick: function () {
           editSheet('Share of ' + h.name, [{ k: 'share', label: 'Inheritance share', value: h.share, hint: 'Like 1/3. All shares must add up to 1.' }, { k: 'qurbani', label: 'Qurbani share (of 7)', num: true, value: h.qurbani }, { k: 'note', label: 'Role or note', value: h.note }],
             function (v) { return upsert('HEIRS', { name: h.name, share: v.share, qurbani: v.qurbani, note: v.note }, h); });
-        } }, el('div', { class: 'grow' }, el('b', { text: h.name }), el('div', { class: 'sm', text: (h.note || '').slice(0, 80) })), el('div', { class: 'amt', text: h.share + (Number(h.qurbani) ? ' · Q ' + h.qurbani + '/7' : '') }));
+        } }, el('div', { class: 'grow' }, el('b', { text: h.name }), el('div', { class: 'sm', text: (h.note || '').slice(0, 80) })),
+          el('div', { class: 'amt', text: h.share + (Number(h.qurbani) ? ' · Q ' + h.qurbani + '/7' : '') }), el('span', { class: 'chev' }, svg('next')));
       })),
-      Math.abs(sum_(heirsOf(D), function (h) { return h.share; }) - 1) > 1e-9 ? el('div', { class: 'err', text: 'Shares do not add up to 1.' }) : null,
-      el('h2', null, svg('gear'), 'Amounts and roles'),
-      el('div', { class: 'card list' }, [['fixed_amount', (set.fixed_name || 'Fixed lease') + ', fixed yearly amount', true], ['custodian', 'Custodian (collects and pays)'], ['tbz_collector', 'TBZ rent collected and kept by']].map(function (x) {
-        var cur = settingRow(D, x[0]);
-        return el('button', { class: 'row', type: 'button', id: 'set-' + x[0], onclick: function () {
-          editSheet(x[1], [{ k: 'v', label: x[1], num: x[2], value: cur ? cur.value : '' }], function (v) {
-            if (x[2] && !/^\d+$/.test(v.v)) return 'Whole rupees only.';
-            if (!x[2] && heirsOf(view()).map(function (h) { return h.name; }).indexOf(v.v) < 0) return 'Use one of the heirs\' names.';
-            saveSetting(x[0], v.v); return '';
-          });
-        } }, el('div', { class: 'grow', text: x[1] }), el('div', { class: 'amt', text: cur ? (x[2] ? groupNum_(cur.value) : cur.value) : '' }));
-      })),
-      el('h2', null, svg('building'), (set.tbz_name || 'Monthly rent') + ' rates'),
+      set_basis(D)
+    ];
+  },
+  amounts: function (D, set) {
+    return [el('div', { class: 'card list' }, [['fixed_amount', (set.fixed_name || 'Fixed lease') + ', fixed yearly amount', true], ['custodian', 'Custodian (collects and pays)'], ['tbz_collector', (set.tbz_name || 'Monthly rent') + ' collected and kept by']].map(function (x) {
+      var cur = settingRow(D, x[0]);
+      return el('button', { class: 'row', type: 'button', id: 'set-' + x[0], onclick: function () {
+        editSheet(x[1], [{ k: 'v', label: x[1], num: x[2], value: cur ? cur.value : '' }], function (v) {
+          if (x[2] && !/^\d+$/.test(v.v)) return 'Whole rupees only.';
+          if (!x[2] && heirsOf(view()).map(function (h) { return h.name; }).indexOf(v.v) < 0) return 'Use one of the heirs\' names.';
+          saveSetting(x[0], v.v); return '';
+        });
+      } }, el('div', { class: 'grow', text: x[1] }), el('div', { class: 'amt', text: cur ? (x[2] ? groupNum_(cur.value) : cur.value) : '' }), el('span', { class: 'chev' }, svg('next')));
+    }))];
+  },
+  rates: function (D, set) {
+    return [
+      el('p', { class: 'muted', text: 'Each month counts as received at the rate in force that month. Add a line when the rent changes.' }),
       el('div', { class: 'card list', id: 'rates' }, D.tables.TBZ_RATES.slice().sort(function (a, b) { return a.from_month < b.from_month ? 1 : -1; }).map(function (r) {
         return el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: 'From ' + fmtMonth(r.from_month) }), el('div', { class: 'sm', text: r.note || '' })), el('div', { class: 'amt', text: groupNum_(r.rent) }));
       })),
       btn('wide', 'plus', 'Add a new rate', function () {
-        editSheet('New TBZ rent rate', [{ k: 'm', label: 'From month', type: 'month', value: todayPk().slice(0, 7) }, { k: 'rent', label: 'Monthly rent (Rs)', num: true }, { k: 'note', label: 'Note' }],
+        editSheet('New ' + (set.tbz_name || 'rent') + ' rate', [{ k: 'm', label: 'From month', type: 'month', value: todayPk().slice(0, 7) }, { k: 'rent', label: 'Monthly rent (Rs)', num: true }, { k: 'note', label: 'Note' }],
           function (v) { return upsert('TBZ_RATES', { from_month: v.m, rent: v.rent.replace(/[^\d]/g, ''), note: v.note }, null); });
-      }, 'addrate'),
-      el('h2', null, svg('list'), 'Lists'),
-      el('div', { class: 'card', id: 'lists' }, LIST_NAMES.map(function (n) {
-        var label = { SOURCES: 'Income sources', CATEGORIES: 'Outflow categories', PAYMENT_TYPES: 'Payment types', TAKEN_FROM: 'Taken from (suggestions)', MODES: 'Mode or account (suggestions)' }[n];
+      }, 'addrate')
+    ];
+  },
+  lists: function (D) {
+    return [el('p', { class: 'muted', text: 'Dark = offered as a tag. Tap one to stop or start offering it.' }),
+      el('div', { id: 'lists' }, LIST_NAMES.map(function (n) {
+        var label = { SOURCES: 'Income sources', CATEGORIES: 'Outflow categories', PAYMENT_TYPES: 'Payment types', TAKEN_FROM: 'Taken from (suggestions)', MODES: 'Banks and accounts' }[n];
         var rows = D.tables.LISTS.filter(function (r) { return r.list === n; });
-        return el('div', null, el('label', { class: 'f', text: label }),
-          el('div', { class: 'chips' }, rows.map(function (r) {
-            return el('button', { type: 'button', class: String(r.active) === 'N' ? '' : 'on', 'data-v': r.value, onclick: function () {
-              if (n === 'PAYMENT_TYPES') { toast('Payment types are fixed, because they decide what counts as cash.'); return; }
-              upsert('LISTS', { list: n, value: r.value, active: String(r.active) === 'N' ? 'Y' : 'N', sort: r.sort }, r); saveState().then(function () { render(); sync(true); });
-            } }, r.value);
-          }), n === 'PAYMENT_TYPES' ? null : el('button', { type: 'button', 'data-add': n, onclick: function () {
-            editSheet('Add to ' + label.toLowerCase(), [{ k: 'v', label: 'New value' }], function (v) {
-              if (rows.some(function (r) { return r.value.toLowerCase() === v.v.toLowerCase(); })) return 'Already on the list.';
-              return upsert('LISTS', { list: n, value: v.v, active: 'Y', sort: rows.length + 1 }, null);
-            });
-          } }, '+ Add')));
-      }), el('p', { class: 'hint', text: 'Dark = in use. Tap one to stop or start offering it.' }))
-    ] : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' }),
-    el('h2', null, svg('faceid'), 'This phone'),
-    bioCard(),
-    el('div', { class: 'card' },
-      el('div', { class: 'kv' }, el('div', { text: 'Signed in as' }), el('div', { text: (S.name || '') + (cust ? ' (custodian)' : ' (view only)') }),
-        el('div', { text: 'App version' }), el('div', { text: BUILD_ID }),
-        el('div', { text: 'Workbook script' }), el('div', { text: S.data && S.data.version || '' })),
-      btn('wide', 'update', 'Update app', updateApp, 'updapp')),
-    btn('danger wide', 'trash', 'Reset this phone', function () {
-      var w = S.outbox.length + S.uploads.length;
-      if (prompt('Type RESET to remove the ledger from this phone.' + (w ? ' ' + w + ' unsent item(s) will be lost.' : '')) === 'RESET') resetPhone();
-    }, 'reset'));
+        return el('div', { class: 'card' }, el('b', { text: label }), el('div', { class: 'chips listchips' }, rows.map(function (r) {
+          return el('button', { type: 'button', class: String(r.active) === 'N' ? '' : 'on', 'data-v': r.value, onclick: function () {
+            if (n === 'PAYMENT_TYPES') { toast('Payment types are fixed, because they decide what counts as cash.'); return; }
+            upsert('LISTS', { list: n, value: r.value, active: String(r.active) === 'N' ? 'Y' : 'N', sort: r.sort }, r); saveState().then(function () { render(); sync(true); });
+          } }, r.value);
+        }), n === 'PAYMENT_TYPES' ? null : el('button', { type: 'button', 'data-add': n, onclick: function () {
+          editSheet('Add to ' + label.toLowerCase(), [{ k: 'v', label: 'New value' }], function (v) {
+            if (rows.some(function (r) { return r.value.toLowerCase() === v.v.toLowerCase(); })) return 'Already on the list.';
+            return upsert('LISTS', { list: n, value: v.v, active: 'Y', sort: rows.length + 1 }, null);
+          });
+        } }, '+ Add')));
+      }))];
+  },
+  phone: function () {
+    var S = T.S, cust = isCust();
+    return [
+      bioCard(),
+      el('div', { class: 'card' },
+        el('div', { class: 'kv' }, el('div', { text: 'Signed in as' }), el('div', { text: (S.name || '') + (cust ? ' (custodian)' : ' (view only)') }),
+          el('div', { text: 'App version' }), el('div', { text: BUILD_ID }),
+          el('div', { text: 'Workbook script' }), el('div', { text: S.data && S.data.version || '' })),
+        btn('wide', 'update', 'Update app', updateApp, 'updapp')),
+      btn('danger wide', 'trash', 'Reset this phone', function () {
+        var w = S.outbox.length + S.uploads.length;
+        if (prompt('Type RESET to remove the ledger from this phone.' + (w ? ' ' + w + ' unsent item(s) will be lost.' : '')) === 'RESET') resetPhone();
+      }, 'reset')
+    ];
+  }
 };
+function set_basis(D) { var b = settingsOf(D).basis; return b ? el('p', { class: 'hint', text: 'Basis: ' + b }) : null; }
 
 // ---------- Face ID: the PIN is kept wrapped by a key only Face ID can release (WebAuthn PRF) ----------
 function bioReady() { return !!localStorage.getItem(BIO) && !!window.PublicKeyCredential; }
