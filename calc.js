@@ -49,14 +49,24 @@ function yearCalc(D, fy, today, depth) {
   var income = inFy('INCOME'), out = inFy('OUTFLOWS'), pays = inFy('PAYMENTS'), tbz = inFy('TBZ'), fin = inFy('FUND_IN'), open = inFy('OPENING');
   var isFund = function (o) { return String(o.taken_from).trim().toLowerCase() === 'fund'; };
 
-  var T = { gross: sum_(tbz.filter(function (r) { return r.received === 'Y'; }), function (r) { return r.rent; }), expenses: sum_(tbz, function (r) { return r.expenses; }) };
-  T.net = T.gross - T.expenses; T.collector = tbzBy || 'the collector'; T.name = set.tbz_name || 'Monthly rent';
-  var curMonth = today ? today.slice(0, 7) : '9999-12';
+  // TBZ months count as received automatically at the rate on file, up to this month. A stored row only exists
+  // where the custodian changed a month (not received, a different rent, a note).
+  var curMonth = today ? today.slice(0, 7) : '9999-12', tbzFrom = String(set.tbz_taken_from || 'TBZ').toLowerCase();
+  var isTbzOut = function (o) { return String(o.taken_from).trim().toLowerCase().indexOf(tbzFrom) === 0; };
+  var auto = fyMonths(fy).filter(function (m) { return m <= curMonth && !tbz.some(function (r) { return r.month === m; }) && tbzRate(D, m) > 0; })
+    .map(function (m) { return { id: '', auto: true, fy: fy, month: m, rent: tbzRate(D, m), expenses: '', received: 'Y', note: '' }; });
+  var tbzAll = tbz.concat(auto).sort(function (a, b) { return a.month < b.month ? -1 : 1; });
+  var T = { name: set.tbz_name || 'Monthly rent', collector: tbzBy || 'the collector', takenFrom: set.tbz_taken_from || 'TBZ',
+    gross: sum_(tbzAll.filter(function (r) { return r.received === 'Y'; }), function (r) { return r.rent; }),
+    expenses: sum_(tbz, function (r) { return r.expenses; }), auto: auto.length };
+  T.outRows = out.filter(function (o) { return o.charged === 'Y' && !isFund(o) && isTbzOut(o); });
+  T.outflows = sum_(T.outRows, function (o) { return o.amount; });
+  T.net = T.gross - T.expenses - T.outflows;
   T.expected = fyMonths(fy).filter(function (m) { return m <= curMonth; }).map(function (m) {
-    var row = tbz.filter(function (r) { return r.month === m; })[0];
+    var row = tbzAll.filter(function (r) { return r.month === m; })[0];
     return { month: m, rate: tbzRate(D, m), row: row || null };
   });
-  T.missing = T.expected.filter(function (x) { return !x.row || x.row.received !== 'Y'; });
+  T.missing = T.expected.filter(function (x) { return x.row && x.row.received !== 'Y'; });
 
   var incomeRows = sum_(income, function (r) { return r.amount; });
   var gross = incomeRows + T.gross;
@@ -101,7 +111,7 @@ function yearCalc(D, fy, today, depth) {
 
   var R = {
     fy: fy, closed: closedYears(D).indexOf(fy) >= 0, custodian: cust,
-    income: income, outflows: out, payments: pays, tbzRows: tbz, fundIn: fin, opening: open,
+    income: income, outflows: out, payments: pays, tbzRows: tbzAll, fundIn: fin, opening: open,
     incomeRows: incomeRows, gross: gross, charged: charged, chargedRows: chargedRows, notCharged: notCharged, net: net, tbz: T,
     heirs: H, totals: { entitlement: sum_(H, function (h) { return h.entitlement; }), received: sum_(H, function (h) { return h.received; }), pending: sum_(H, function (h) { return h.pending; }) },
     cash: { opening: cashOpen, openingFrom: openCashRow.length ? 'entered' : hasPrev ? 'carried from ' + prevFy : 'none', collected: collected, fundIn: fundIn,
@@ -124,7 +134,7 @@ function yearChecks(D, R, today) {
   if (R.patoki.fixed && R.patoki.received > R.patoki.fixed) add(1, R.patoki.name + ' received ' + fmtRs(R.patoki.received) + ', more than the fixed ' + fmtRs(R.patoki.fixed) + '.', 'patoki');
   R.heirs.forEach(function (h) { if (!h.custodian && h.pending < -1) add(2, h.name + ' has been paid ' + fmtRs(-h.pending) + ' more than the share.', 'heir', h.name); });
   R.notCharged.forEach(function (o) { add(2, 'Not charged to the pool: ' + o.payee + ', ' + fmtRs(o.amount) + '. Decide: charge it or delete it.', 'entry', { tab: 'OUTFLOWS', id: o.id }); });
-  R.tbz.missing.forEach(function (m) { add(2, R.tbz.name + ' ' + fmtMonth(m.month) + (m.row ? ' marked not received.' : ' not entered yet.'), 'tbz', m.month); });
+  R.tbz.missing.forEach(function (m) { add(2, R.tbz.name + ' ' + fmtMonth(m.month) + ' marked not received.', 'tbz', m.month); });
   if (R.cash.diff !== null && R.cash.diff !== 0) add(2, 'Cash in hand is ' + fmtRs(Math.abs(R.cash.diff)) + (R.cash.diff > 0 ? ' more' : ' less') + ' than it should be.', 'cash');
   if (R.cash.actual === null && !R.closed) add(3, 'Actual bank and cash not entered for ' + R.fy + '.', 'cash');
   if (R.patoki.fixed && R.patoki.due > 0 && !R.closed) add(3, R.patoki.name + ' still due this year: ' + fmtRs(R.patoki.due) + '.', 'patoki');
@@ -160,7 +170,7 @@ function summaryRows(R) {
   rows.push(['Cash: opening (' + R.cash.openingFrom + ')', R.cash.opening], ['Cash: collected by ' + R.custodian, R.cash.collected], ['Cash: money back to fund', R.cash.fundIn],
     ['Cash: outflows paid by ' + R.custodian, R.cash.outPaid], ['Cash: paid to heirs', R.cash.paidHeirs], ['Cash: should be in hand', R.cash.shouldHave],
     ['Cash: actual (entered)', R.cash.actual === null ? '' : R.cash.actual], ['Fund balance', R.fund.balance],
-    [R.patoki.name + ' fixed', R.patoki.fixed], [R.patoki.name + ' received', R.patoki.received], [R.patoki.name + ' still due', R.patoki.due], [R.tbz.name + ' gross', R.tbz.gross], [R.tbz.name + ' expenses', R.tbz.expenses],
+    [R.patoki.name + ' fixed', R.patoki.fixed], [R.patoki.name + ' received', R.patoki.received], [R.patoki.name + ' still due', R.patoki.due], [R.tbz.name + ' gross', R.tbz.gross], [R.tbz.name + ' expenses', R.tbz.expenses + R.tbz.outflows], [R.tbz.name + ' kept by ' + R.tbz.collector, R.tbz.net],
     ['Items to check', R.checks.length]);
   return rows;
 }

@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '734b7070';
+var BUILD_ID = '0ed0d12f';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -478,7 +478,7 @@ function heirCard(h) {
 SCREENS.home = function () {
   var c = calcNow(), R = c.R, D = c.D;
   var t1 = R.checks.filter(function (x) { return x.tier < 3; }), info = R.checks.filter(function (x) { return x.tier === 3; });
-  var recent = KINDS.reduce(function (a, k) { return a.concat(R[{ INCOME: 'income', OUTFLOWS: 'outflows', PAYMENTS: 'payments', TBZ: 'tbzRows', FUND_IN: 'fundIn' }[k]].map(function (r) { return { tab: k, r: r }; })); }, [])
+  var recent = KINDS.reduce(function (a, k) { return a.concat(R[{ INCOME: 'income', OUTFLOWS: 'outflows', PAYMENTS: 'payments', TBZ: 'tbzRows', FUND_IN: 'fundIn' }[k]].filter(function (r) { return !r.auto; }).map(function (r) { return { tab: k, r: r }; })); }, [])
     .sort(byNewest).slice(0, 5);
   var showChecks = T.fold.checks || R.checks.some(function (x) { return x.tier === 1; });
   return el('div', null,
@@ -502,9 +502,12 @@ SCREENS.home = function () {
       el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: R.patoki.name }), el('div', { class: 'sm', text: 'Received ' + groupNum_(R.patoki.received) + ' of ' + groupNum_(R.patoki.fixed) })),
         el('span', { class: 'chip ' + (R.patoki.due <= 0 ? 'ok' : 'wait') }, R.patoki.due <= 0 ? 'All received' : groupNum_(R.patoki.due) + ' due'))),
     el('div', { class: 'card', id: 'tbzcard' },
-      el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: R.tbz.name }), el('div', { class: 'sm', text: 'Collected by ' + R.tbz.collector + ', net ' + groupNum_(R.tbz.net) })),
-        el('span', { class: 'chip ' + (R.tbz.missing.length ? 'due' : 'ok') }, R.tbz.missing.length ? R.tbz.missing.length + ' month' + (R.tbz.missing.length > 1 ? 's' : '') + ' missing' : 'Up to date')),
-      monthGrid(R)),
+      el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: R.tbz.name }),
+          el('div', { class: 'sm', id: 'tbzline', text: 'Rent ' + groupNum_(R.tbz.gross) + ', expenses ' + groupNum_(R.tbz.expenses + R.tbz.outflows) + ', ' + R.tbz.collector + ' keeps ' + groupNum_(R.tbz.net) })),
+        el('span', { class: 'chip ' + (R.tbz.missing.length ? 'due' : 'ok') }, R.tbz.missing.length ? R.tbz.missing.length + ' not received' : 'Received')),
+      monthGrid(R),
+      isCust() && !R.closed ? el('p', { class: 'hint', text: 'Months count as received automatically. Tap a month to change it.' }) : null,
+      isCust() && !R.closed ? btn('wide', 'out', 'Add ' + R.tbz.name + ' expense', function () { openTbzExpense(); }, 'addtbzexp') : null),
     R.checks.length ? el('div', { id: 'checks' },
       el('h2', null, svg('alert'), 'Items to check (' + R.checks.length + ')'),
       showChecks ? el('div', { class: 'card checks' }, R.checks.slice(0, T.fold.allChecks ? 99 : 6).map(checkRow),
@@ -515,11 +518,22 @@ SCREENS.home = function () {
 };
 function monthGrid(R) {
   var cur = todayPk().slice(0, 7);
+  var can = isCust() && !R.closed;
   return el('div', { class: 'months', id: 'tbzmonths' }, fyMonths(R.fy).map(function (m) {
     var row = R.tbzRows.filter(function (r) { return r.month === m; })[0];
-    var cls = row && row.received === 'Y' ? 'ok' : m <= cur ? 'miss' : 'fut';
-    return el('div', { class: 'mo ' + cls }, el('b', { text: fmtMonth(m).slice(0, 3) }), row && row.received === 'Y' ? 'Yes' : m <= cur ? 'No' : '');
+    var cls = row && row.received === 'Y' ? 'ok' : row ? 'miss' : 'fut';
+    var lab = !row ? '' : row.received !== 'Y' ? 'No' : row.auto ? 'Auto' : 'Yes';
+    return el(can ? 'button' : 'div', { class: 'mo ' + cls + (row && !row.auto ? ' set' : ''), type: can ? 'button' : null, 'data-m': m,
+      onclick: can ? function () { openTbzMonth(m); } : null }, el('b', { text: fmtMonth(m).slice(0, 3) }), lab);
   }));
+}
+function openTbzMonth(m) {
+  var D = view(), row = D.tables.TBZ.filter(function (r) { return r.month === m; })[0];
+  if (row) openForm('TBZ', row); else openForm('TBZ', null, { month: m, rent: tbzRate(D, m) });
+}
+function openTbzExpense() {
+  var set = settingsOf(view());
+  openForm('OUTFLOWS', null, { taken_from: set.tbz_taken_from || 'TBZ', paid_by: set.tbz_collector || '', category: 'Property' });
 }
 function checkRow(c) {
   return el('button', { class: 'row t' + c.tier, type: 'button', onclick: function () {
@@ -540,11 +554,14 @@ function curClosed() { return closedYears(view()).indexOf(curFy()) >= 0; }
 // ---------- entry rows and details ----------
 function entryText(tab, r) {
   if (tab === 'INCOME') return { t: r.source + (r.detail ? ', ' + r.detail : ''), s: [fmtDate(r.date), 'by ' + r.collected_by, r.mode].filter(Boolean).join(' · ') };
-  if (tab === 'OUTFLOWS') return { t: r.payee, s: [r.category, r.taken_from, fmtDate(r.date)].filter(Boolean).join(' · '),
-    chip: String(r.taken_from).toLowerCase() === 'fund' ? ['wait', 'From fund'] : r.charged !== 'Y' ? ['due', 'Not charged'] : null };
+  if (tab === 'OUTFLOWS') {
+    var tw = String(settingsOf(T.S.data || { tables: {} }).tbz_taken_from || 'TBZ').toLowerCase();
+    return { t: r.payee, s: [r.category, r.taken_from, fmtDate(r.date)].filter(Boolean).join(' · '),
+      chip: String(r.taken_from).toLowerCase() === 'fund' ? ['wait', 'From fund'] : r.charged !== 'Y' ? ['due', 'Not charged'] : String(r.taken_from).toLowerCase().indexOf(tw) === 0 ? ['wait', 'From ' + r.taken_from] : null };
+  }
   if (tab === 'PAYMENTS') return { t: r.heir + ': ' + r.type, s: [r.batch, fmtDate(r.date), r.cash === 'Y' ? 'cash' : 'not cash'].filter(Boolean).join(' · ') };
-  if (tab === 'TBZ') return { t: 'TBZ ' + fmtMonth(r.month), s: [r.received === 'Y' ? 'Received' : 'Not received', Number(r.expenses) ? 'expenses ' + groupNum_(r.expenses) : ''].filter(Boolean).join(' · '),
-    chip: r.received === 'Y' ? null : ['due', 'Not received'] };
+  if (tab === 'TBZ') return { t: 'TBZ ' + fmtMonth(r.month), s: r.auto ? 'Counted automatically at the rate on file' : [r.received === 'Y' ? 'Received' : 'Not received', Number(r.expenses) ? 'expenses ' + groupNum_(r.expenses) : '', r.note].filter(Boolean).join(' · '),
+    chip: r.auto ? ['wait', 'Auto'] : r.received === 'Y' ? null : ['due', 'Not received'] };
   if (tab === 'FUND_IN') return { t: 'Back to fund: ' + r.from_whom, s: fmtDate(r.date) };
   return { t: r.item, s: r.fy };
 }
@@ -566,6 +583,7 @@ function fieldText(tab, k, v) {
   return String(v);
 }
 function openEntry(tab, r) {
+  if (tab === 'TBZ' && r.auto) { if (isCust() && !curClosed()) openTbzMonth(r.month); return; }
   var D = view(), closed = closedYears(D).indexOf(r.fy) >= 0;
   sheetOpen(function () {
     var reason;
@@ -626,7 +644,8 @@ SCREENS.ledger = function () {
 function ledgerList(D, fy) {
   var q = T.q.trim().toLowerCase(), qd = q.replace(/[,\s]/g, '');
   var items = (T.kind === 'ALL' ? KINDS : [T.kind]).reduce(function (a, k) {
-    return a.concat(D.tables[k].filter(function (r) { return r.fy === fy; }).map(function (r) { return { tab: k, r: r }; }));
+    var rows = k === 'TBZ' ? yearCalc(D, fy, todayPk()).tbzRows : D.tables[k].filter(function (r) { return r.fy === fy; });
+    return a.concat(rows.map(function (r) { return { tab: k, r: r }; }));
   }, []).filter(function (x) {
     if (!q) return true;
     var t = entryText(x.tab, x.r), amt = String(x.tab === 'TBZ' ? x.r.rent : x.r.amount);
@@ -645,7 +664,8 @@ function openAddChooser() {
     return sheetWrap('Add', [el('h2', { text: 'Add to ' + curFy() }),
       el('div', { class: 'tiles' },
         tile('INCOME', 'Income', 'Thaika, kiraya, mall'), tile('OUTFLOWS', 'Outflow', 'Zakat, charity, loans, costs'),
-        tile('PAYMENTS', 'Payment to heir', 'Cash, Qurbani, adjustment'), tile('TBZ', 'TBZ month', (settingsOf(view()).tbz_name || 'Monthly rent') + ', kept by ' + (settingsOf(view()).tbz_collector || 'the collector')),
+        tile('PAYMENTS', 'Payment to heir', 'Cash, Qurbani, adjustment'), tile('TBZ', 'Change a TBZ month', 'Months count as received unless changed'),
+        el('button', { class: 'tile', type: 'button', id: 'add-TBZEXP', onclick: openTbzExpense }, svg('out'), el('b', { text: 'TBZ expense' }), el('span', { text: 'Repairs, bills: ' + (settingsOf(view()).tbz_collector || 'collector') + ' keeps less' })),
         tile('FUND_IN', 'Money back to fund', 'A loan repaid')),
       btn('wide', 'x', 'Close', sheetClose)]);
   });
@@ -670,8 +690,9 @@ function openForm(tab, r, preset) {
     Object.assign(f, dflt, preset || {});
     if (tab === 'TBZ') {
       var R = yearCalc(D, curFy(), todayPk());
-      f.month = f.month || (R.tbz.missing[0] && !R.tbz.missing[0].row ? R.tbz.missing[0].month : fyMonths(curFy()).filter(function (m) { return !R.tbzRows.some(function (x) { return x.month === m; }); })[0]) || '';
-      f.rent = f.month ? tbzRate(D, f.month) : '';
+      var stored = D.tables.TBZ.filter(function (x) { return x.fy === curFy(); }).map(function (x) { return x.month; });
+      f.month = f.month || fyMonths(curFy()).filter(function (m) { return m <= todayPk().slice(0, 7) && stored.indexOf(m) < 0; }).pop() || fyMonths(curFy()).filter(function (m) { return stored.indexOf(m) < 0; })[0] || '';
+      f.rent = f.rent || (f.month ? tbzRate(D, f.month) : '');
     }
   }
   T.form = { tab: tab, f: f, orig: r || null, photos: [], minus: {} };
@@ -682,7 +703,7 @@ var FORM_LAYOUT = {
   INCOME: ['date', 'source', 'detail', 'collected_by', 'amount', 'mode', 'note'],
   OUTFLOWS: ['date', 'category', 'payee', 'amount', 'taken_from', 'paid_by', 'charged', 'note'],
   PAYMENTS: ['heir', 'type', 'amount', 'date', 'batch', 'note'],
-  TBZ: ['month', 'rent', 'expenses', 'received', 'note'],
+  TBZ: ['month', 'rent', 'received', 'note'],
   FUND_IN: ['date', 'from_whom', 'amount', 'note'],
   OPENING: ['item', 'amount', 'note']
 };
@@ -719,16 +740,24 @@ SCREENS.form = function () {
     }
     var long = k === 'note' || k === 'payee';
     var input = el(long ? 'textarea' : 'input', { id: id, maxlength: '500', value: long ? null : (f[k] || ''), autocomplete: 'off', oninput: function (e) { f[k] = e.target.value; } }, long ? (f[k] || '') : null);
-    var sugg = SUGGEST[k] ? chips(listOf(D, SUGGEST[k]), f[k], function (x) { f[k] = x; input.value = x; if (k === 'taken_from') drawFundHint(); }, id + '-chips') : null;
+    var sv = SUGGEST[k] ? listOf(D, SUGGEST[k]) : [];
+    if (k === 'taken_from') { var tw = settingsOf(D).tbz_taken_from || 'TBZ'; if (sv.indexOf(tw) < 0) sv = sv.concat([tw]); }
+    var sugg = SUGGEST[k] ? chips(sv, f[k], function (x) { f[k] = x; input.value = x; if (k === 'taken_from') drawFundHint(); }, id + '-chips') : null;
     if (k === 'taken_from') input.addEventListener('input', drawFundHint);
     if (k === 'item') sugg = chips(heirs.concat(['Cash']), f[k], function (x) { f[k] = x; input.value = x; }, id + '-chips');
     return [label, sugg, input];
   }
   var cashHint = el('div', { class: 'hint', id: 'cashhint' }), fundHint = el('div', { class: 'note hidden', id: 'fundhint', text: 'Paid from money back in the fund: it is not charged to the pool.' });
   function drawCashHint() { if (tab === 'PAYMENTS') cashHint.textContent = f.cash === 'Y' ? 'Counts as cash paid out by ' + (settingsOf(D).custodian || 'the custodian') + '.' : 'Not cash: counts toward the share only.'; }
-  function drawFundHint() { if (tab === 'OUTFLOWS') fundHint.classList.toggle('hidden', String(f.taken_from || '').trim().toLowerCase() !== 'fund'); }
+  var tbzHint = el('div', { class: 'note hidden', id: 'tbzhint', text: 'Paid out of ' + (settingsOf(D).tbz_name || 'TBZ') + ' rent: ' + (settingsOf(D).tbz_collector || 'the collector') + ' keeps that much less. Charged to the pool.' });
+  function drawFundHint() {
+    if (tab !== 'OUTFLOWS') return;
+    var tf = String(f.taken_from || '').trim().toLowerCase(), tw = String(settingsOf(D).tbz_taken_from || 'TBZ').toLowerCase();
+    fundHint.classList.toggle('hidden', tf !== 'fund'); tbzHint.classList.toggle('hidden', tf.indexOf(tw) !== 0);
+  }
   drawCashHint();
-  var body = FORM_LAYOUT[tab].map(function (k) { var x = fieldEl(k); if (k === 'type') return [x, cashHint]; if (k === 'charged') return [fundHint, x]; return x; });
+  var layout = FORM_LAYOUT[tab].slice(); if (tab === 'TBZ' && Number(f.expenses)) layout.splice(2, 0, 'expenses');
+  var body = layout.map(function (k) { var x = fieldEl(k); if (k === 'type') return [x, cashHint]; if (k === 'charged') return [fundHint, tbzHint, x]; return x; });
   setTimeout(drawFundHint, 0);
   function save(force) {
     var rec = {};
@@ -743,6 +772,7 @@ SCREENS.form = function () {
     if (f.extra) rec.extra = f.extra;
     if (F.orig && F.orig.id) rec.id = F.orig.id;
     var e = validateRecord_(tab, rec, ctxOf(D, F.orig));
+    if (!e && tab === 'TBZ' && D.tables.TBZ.some(function (x) { return x.month === rec.month && rowKey(x) !== (F.orig ? rowKey(F.orig) : ''); })) e = fmtMonth(rec.month) + ' is already changed. Tap it on the month grid to edit it.';
     var fy = SCHEMA[tab].fyFrom ? fyOf_(tab, rec) : '';
     if (!e && fy && closedYears(D).indexOf(fy) >= 0) e = fy + ' is closed. Reopen it in Settings first.';
     if (e) { err.textContent = e; err.scrollIntoView({ block: 'center' }); return; }
@@ -879,8 +909,9 @@ SCREENS.summary = function () {
       el('div', { text: R.patoki.name + ' still due' }), el('div', { text: groupNum_(R.patoki.due) }),
       el('div', { text: 'Taken out before the pool' }), el('div', { text: groupNum_(R.patoki.takenOut) }),
       el('div', { text: R.tbz.name + ' rent received' }), el('div', { text: groupNum_(R.tbz.gross) }),
-      el('div', { text: 'TBZ expenses' }), el('div', { text: groupNum_(R.tbz.expenses) }),
-      el('div', { text: 'TBZ net kept by ' + R.tbz.collector }), el('div', { text: groupNum_(R.tbz.net) }))),
+      el('div', { text: R.tbz.name + ' expenses' }), el('div', { text: groupNum_(R.tbz.expenses + R.tbz.outflows) }),
+      R.tbz.outRows.map(function (o) { return [el('div', { class: 'sm', text: '\u2022 ' + o.payee + (o.date ? ', ' + fmtDate(o.date) : '') }), el('div', { class: 'sm', text: groupNum_(o.amount) })]; }),
+      el('div', { text: R.tbz.name + ' net kept by ' + R.tbz.collector }), el('div', { text: groupNum_(R.tbz.net) }))),
     R.fund.balance || R.fund.inYear ? [el('h2', null, svg('fund'), 'Fund'), el('div', { class: 'card' }, el('div', { class: 'kv' },
       el('div', { text: 'Back to fund this year' }), el('div', { text: groupNum_(R.fund.inYear) }),
       el('div', { text: 'Paid from fund this year' }), el('div', { text: groupNum_(R.fund.outYear) }),

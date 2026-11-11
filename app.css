@@ -174,3 +174,5 @@ button.card { appearance: none; border: 0; width: 100%; display: block; text-ali
 .pill { padding: 6px 10px; }
 .hero { background: #0a2a6e; color: #fff; }
 @media (prefers-color-scheme: dark) { .hero { background: #1d3c86; color: #fff; } .hero::after { background: #e2b75c; opacity: .9; } }
+button.mo { appearance: none; border: 0; font: inherit; cursor: pointer; }
+.mo.set { box-shadow: inset 0 0 0 2px currentColor; }

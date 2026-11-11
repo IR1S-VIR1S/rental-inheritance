@@ -95,7 +95,7 @@ function pdfSummary(R) {
   if (R.notCharged.length) { need(14); text(40, y, 8.5, false, R.notCharged.length + ' listed but not charged: ' + N(sum_(R.notCharged, function (o) { return o.amount; })) + '.', GREY); y -= 14; }
   section(R.patoki.name + ' and ' + R.tbz.name);
   kv(R.patoki.name + ', fixed yearly amount', N(R.patoki.fixed)); kv(R.patoki.name + ' received', N(R.patoki.received)); kv(R.patoki.name + ' still due', N(R.patoki.due));
-  kv(R.tbz.name + ' rent received', N(R.tbz.gross)); kv(R.tbz.name + ' expenses', N(R.tbz.expenses)); kv('TBZ net kept by ' + R.tbz.collector, N(R.tbz.net));
+  kv(R.tbz.name + ' rent received', N(R.tbz.gross)); kv(R.tbz.name + ' expenses', N(R.tbz.expenses + R.tbz.outflows)); R.tbz.outRows.forEach(function (o) { need(14); text(52, y, 9, false, o.payee.slice(0, 70), GREY); rtext(555, y, 9, false, N(o.amount), GREY); y -= 12.5; }); kv(R.tbz.name + ' net kept by ' + R.tbz.collector, N(R.tbz.net));
   if (R.fund.balance || R.fund.inYear) { section('Fund'); kv('Back to fund this year', N(R.fund.inYear)); kv('Paid from fund this year', N(R.fund.outYear)); kv('Fund balance', N(R.fund.balance), true); }
   if (R.checks.length) {
     section('Items to check');
