@@ -176,3 +176,4 @@ button.card { appearance: none; border: 0; width: 100%; display: block; text-ali
 @media (prefers-color-scheme: dark) { .hero { background: #1d3c86; color: #fff; } .hero::after { background: #e2b75c; opacity: .9; } }
 button.mo { appearance: none; border: 0; font: inherit; cursor: pointer; }
 .mo.set { box-shadow: inset 0 0 0 2px currentColor; }
+input.qamt { width: 130px; text-align: right; flex: none; }

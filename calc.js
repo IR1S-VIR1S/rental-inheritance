@@ -4,6 +4,9 @@ var CALC_VER = 1;
 
 function sum_(a, f) { return a.reduce(function (s, x) { return s + (Number(f ? f(x) : x) || 0); }, 0); }
 function settingsOf(D) { var o = {}; (D.tables.SETTINGS || []).forEach(function (r) { o[r.key] = String(r.value); }); return o; }
+// Extra details kept in the "extra" column as JSON (for example a Qurbani paid directly from income).
+function extraOf(r) { try { var x = r && r.extra ? JSON.parse(r.extra) : {}; return x && typeof x === 'object' ? x : {}; } catch (e) { return {}; } }
+function isDirect(r) { return !!extraOf(r).direct; }
 function heirsOf(D) {
   return (D.tables.HEIRS || []).map(function (h) { return { name: String(h.name), share: fracVal_(h.share), shareText: String(h.share), qurbani: Number(h.qurbani) || 0, note: h.note || '' }; });
 }
@@ -90,7 +93,9 @@ function yearCalc(D, fy, today, depth) {
   var openCashRow = open.filter(function (o) { return String(o.item).toLowerCase() === 'cash'; });
   var prevFy = fyPrev(fy), hasPrev = allYears(D).indexOf(prevFy) >= 0 && (depth || 0) < 20;
   var cashOpen = openCashRow.length ? sum_(openCashRow, function (o) { return o.amount; }) : hasPrev ? yearCalc(D, prevFy, today, (depth || 0) + 1).cash.shouldHave : 0;
-  var collected = sum_(income.filter(function (r) { return r.collected_by === cust; }), function (r) { return r.amount; });
+  // Income paid out directly at source (for example a Qurbani paid from a lease) counts in gross but never reaches the custodian's cash.
+  var collected = sum_(income.filter(function (r) { return r.collected_by === cust && !isDirect(r); }), function (r) { return r.amount; });
+  var direct = sum_(income.filter(isDirect), function (r) { return r.amount; });
   var fundIn = sum_(fin, function (r) { return r.amount; });
   var fundOutRows = out.filter(isFund);
   var outPaid = sum_(out.filter(function (o) { return o.paid_by === cust && (o.charged === 'Y' || isFund(o)); }), function (o) { return o.amount; });
@@ -114,7 +119,7 @@ function yearCalc(D, fy, today, depth) {
     income: income, outflows: out, payments: pays, tbzRows: tbzAll, fundIn: fin, opening: open,
     incomeRows: incomeRows, gross: gross, charged: charged, chargedRows: chargedRows, notCharged: notCharged, net: net, tbz: T,
     heirs: H, totals: { entitlement: sum_(H, function (h) { return h.entitlement; }), received: sum_(H, function (h) { return h.received; }), pending: sum_(H, function (h) { return h.pending; }) },
-    cash: { opening: cashOpen, openingFrom: openCashRow.length ? 'entered' : hasPrev ? 'carried from ' + prevFy : 'none', collected: collected, fundIn: fundIn,
+    cash: { opening: cashOpen, openingFrom: openCashRow.length ? 'entered' : hasPrev ? 'carried from ' + prevFy : 'none', collected: collected, direct: direct, fundIn: fundIn,
       outPaid: outPaid, paidHeirs: paidHeirs, shouldHave: shouldHave, actual: actual, diff: actual === null ? null : actual - shouldHave,
       owedOthers: sum_(H.filter(function (h) { return !h.custodian && h.pending > 1; }), function (h) { return h.pending; }),
       ownPending: sum_(H.filter(function (h) { return h.custodian; }), function (h) { return h.pending; }) },

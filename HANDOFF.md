@@ -8,6 +8,7 @@
 
 | Version | App build | What changed | Tests |
 |---|---|---|---|
+| App only | 4e8a8816 | Qurbani entry: total split by sevenths (others optional); paid from income directly (added to gross and the fixed lease received, never in the custodian's cash, parts non-cash), or paid by the custodian (cash) or by another heir (parts non-cash, payer credited the total); the group is deleted together | script 166/166, loader 15/15, phone 86/86 x3 |
 | App only | 0ed0d12f | TBZ months count as received automatically (tap a month on the grid to change it); TBZ expenses entered as outflows taken from TBZ, paid by the collector, charged to the pool and taken off what he keeps | script 159/159, loader 15/15, phone 70/70 x3 |
 | Script 1.0 | 734b7070 | First version | script 148/148, loader 15/15, phone 62/62 x3 |
 

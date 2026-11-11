@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '0ed0d12f';
+var BUILD_ID = '4e8a8816';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -255,7 +255,7 @@ var FAB = {
 function softRender() {
   var ae = document.activeElement, typing = ae && ae.matches && ae.matches('#app input, #app textarea');
   if (['unlock', 'join', 'setpin'].indexOf(T.screen) >= 0) return;
-  if (T.screen === 'form' || T.sheet || typing) { renderTop(); return; }
+  if (T.screen === 'form' || T.screen === 'qurbani' || T.sheet || typing) { renderTop(); return; }
   var y = window.scrollY; render(); window.scrollTo(0, y);
 }
 function renderTop() { var s = document.getElementById('syncpill'); if (s && T.S) s.replaceWith(syncPill()); }
@@ -553,7 +553,7 @@ function curClosed() { return closedYears(view()).indexOf(curFy()) >= 0; }
 
 // ---------- entry rows and details ----------
 function entryText(tab, r) {
-  if (tab === 'INCOME') return { t: r.source + (r.detail ? ', ' + r.detail : ''), s: [fmtDate(r.date), 'by ' + r.collected_by, r.mode].filter(Boolean).join(' · ') };
+  if (tab === 'INCOME') return { t: r.source + (r.detail ? ', ' + r.detail : ''), chip: isDirect(r) ? ['wait', 'Not in cash'] : null, s: [fmtDate(r.date), isDirect(r) ? 'paid directly' : 'by ' + r.collected_by, r.mode].filter(Boolean).join(' · ') };
   if (tab === 'OUTFLOWS') {
     var tw = String(settingsOf(T.S.data || { tables: {} }).tbz_taken_from || 'TBZ').toLowerCase();
     return { t: r.payee, s: [r.category, r.taken_from, fmtDate(r.date)].filter(Boolean).join(' · '),
@@ -584,7 +584,8 @@ function fieldText(tab, k, v) {
 }
 function openEntry(tab, r) {
   if (tab === 'TBZ' && r.auto) { if (isCust() && !curClosed()) openTbzMonth(r.month); return; }
-  var D = view(), closed = closedYears(D).indexOf(r.fy) >= 0;
+  var D = view(), closed = closedYears(D).indexOf(r.fy) >= 0, group = extraOf(r).qurbani || '';
+  var groupRows = group ? ['INCOME', 'PAYMENTS'].reduce(function (a, t) { return a.concat(D.tables[t].filter(function (x) { return extraOf(x).qurbani === group; }).map(function (x) { return { tab: t, r: x }; })); }, []) : [];
   sheetOpen(function () {
     var reason;
     var kv = Object.keys(SCHEMA[tab].fields).map(function (k) { var v = fieldText(tab, k, r[k]); return v ? [el('div', { text: SCHEMA[tab].fields[k].label }), el('div', { text: v })] : null; });
@@ -594,8 +595,9 @@ function openEntry(tab, r) {
       el('div', { class: 'kv' }, kv, el('div', { text: 'Year' }), el('div', { text: r.fy || '' })),
       photoStrip(tab, r, closed),
       closed ? closedNote(r.fy) : null,
+      group ? el('div', { class: 'note', id: 'groupnote', text: 'Part of one Qurbani (' + groupRows.length + ' entries' + (extraOf(r).direct ? ', paid directly from ' + (r.source || 'income') : '') + '). Deleting removes all of them.' }) : null,
       isCust() && !closed ? el('div', { class: 'actions2' },
-        btn('primary', 'edit', 'Edit', function () { openForm(tab, r); }, 'editbtn'),
+        group ? el('span') : btn('primary', 'edit', 'Edit', function () { openForm(tab, r); }, 'editbtn'),
         btn('danger', 'trash', 'Delete', function () { document.getElementById('delbox').classList.remove('hidden'); reason.focus(); }, 'delbtn')) : null,
       isCust() && !closed ? el('div', { id: 'delbox', class: 'hidden' },
         el('label', { class: 'f', for: 'delreason', text: 'Why delete it?' }),
@@ -603,8 +605,10 @@ function openEntry(tab, r) {
         btn('danger wide', 'trash', 'Delete this entry', function () {
           if (!reason.value.trim()) { toast('Give a reason first.'); reason.focus(); return; }
           var S = T.S;
-          if (!r.id) S.outbox = S.outbox.filter(function (o) { return o.req_id !== r.key; });
-          else { S.outbox = S.outbox.filter(function (o) { return !(o.op === 'save' && o.rec.id === r.id); }); S.outbox.push({ op: 'del', tab: tab, req_id: uuid(), id: r.id, reason: reason.value.trim() }); }
+          (group ? groupRows : [{ tab: tab, r: r }]).forEach(function (g) {
+            if (!g.r.id) S.outbox = S.outbox.filter(function (o) { return o.req_id !== g.r.key; });
+            else { S.outbox = S.outbox.filter(function (o) { return !(o.op === 'save' && o.rec.id === g.r.id); }); S.outbox.push({ op: 'del', tab: g.tab, req_id: uuid(), id: g.r.id, reason: reason.value.trim() }); }
+          });
           T.sheet = null; saveState().then(function () { render(); toast('Deleted.', true); sync(true); });
         }, 'delconfirm')) : null,
       btn('wide', 'x', 'Close', sheetClose)]));
@@ -666,7 +670,8 @@ function openAddChooser() {
         tile('INCOME', 'Income', 'Thaika, kiraya, mall'), tile('OUTFLOWS', 'Outflow', 'Zakat, charity, loans, costs'),
         tile('PAYMENTS', 'Payment to heir', 'Cash, Qurbani, adjustment'), tile('TBZ', 'Change a TBZ month', 'Months count as received unless changed'),
         el('button', { class: 'tile', type: 'button', id: 'add-TBZEXP', onclick: openTbzExpense }, svg('out'), el('b', { text: 'TBZ expense' }), el('span', { text: 'Repairs, bills: ' + (settingsOf(view()).tbz_collector || 'collector') + ' keeps less' })),
-        tile('FUND_IN', 'Money back to fund', 'A loan repaid')),
+        tile('FUND_IN', 'Money back to fund', 'A loan repaid'),
+        el('button', { class: 'tile', type: 'button', id: 'add-QURBANI', onclick: function () { openQurbani(); } }, svg('users'), el('b', { text: 'Qurbani' }), el('span', { text: 'Split by sevenths, from income or cash' }))),
       btn('wide', 'x', 'Close', sheetClose)]);
   });
   function tile(tab, title, sub) { return el('button', { class: 'tile', type: 'button', id: 'add-' + tab, onclick: function () { openForm(tab); } }, svg(KIND_ICON[tab]), el('b', { text: title }), el('span', { text: sub })); }
@@ -813,6 +818,81 @@ function pickPhotosField(F) {
   return [el('label', { class: 'f', text: 'Receipt or slip photos (optional)' }), input, btn('wide', 'camera', 'Add photo', function () { input.click(); }, 'addphoto'), count];
 }
 
+// ---------- Qurbani: one entry split by sevenths, paid from income directly (never in cash) or from cash in hand ----------
+function openQurbani() {
+  if (curClosed()) { toast(curFy() + ' is closed.'); return; }
+  var D = view(), set = settingsOf(D);
+  T.form = { tab: 'QURBANI', q: { date: defaultDate(), total: '', direct: true, source: set.fixed_source || set.fixed_name || '', parts: {}, typed: {}, payer: set.custodian || '' } };
+  T.sheet = null; go('qurbani');
+}
+SCREENS.qurbani = function () {
+  var D = view(), set = settingsOf(D), Q = T.form.q, H = heirsOf(D), cust = set.custodian || '';
+  var sevenths = sum_(H, function (h) { return h.qurbani; }) || 7, err = el('div', { class: 'err', id: 'qerr' });
+  var list = el('div', { class: 'card', id: 'qparts' }), totalHint = el('div', { class: 'hint', id: 'qsum' });
+  function split() {
+    var t = Number(Q.total) || 0;
+    H.forEach(function (h) { if (!Q.typed[h.name]) Q.parts[h.name] = h.qurbani ? String(Math.round(t * h.qurbani / sevenths)) : (Q.parts[h.name] || ''); });
+  }
+  function drawParts() {
+    list.replaceChildren.apply(list, H.map(function (h) {
+      return el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: h.name }), el('div', { class: 'sm', text: h.qurbani ? h.qurbani + '/7' : 'separate (optional)' })),
+        el('input', { id: 'q-' + h.name, class: 'qamt', inputmode: 'numeric', autocomplete: 'off', value: Q.parts[h.name] || '', placeholder: '0',
+          oninput: function (e) { var v = e.target.value.replace(/[^\d]/g, ''); e.target.value = v; Q.parts[h.name] = v; Q.typed[h.name] = true; drawSum(); } }));
+    }));
+    drawSum();
+  }
+  function partsTotal() { return H.reduce(function (s, h) { return s + (Number(Q.parts[h.name]) || 0); }, 0); }
+  function drawSum() {
+    var p = partsTotal();
+    totalHint.textContent = 'Parts add up to ' + fmtRs(p) + (Q.direct ? '. Added to ' + (Q.source || 'income') + ' as income; not in ' + (cust || 'your') + ' cash.'
+      : Q.payer === cust ? '. Counted as cash paid out by ' + (cust || 'the custodian') + '.'
+      : '. ' + Q.payer + ' paid it all: everyone\u2019s part counts as received, and ' + Q.payer + ' is owed back ' + fmtRs(p - (Number(Q.parts[Q.payer]) || 0)) + ' (the others\u2019 parts).');
+  }
+  split();
+  var srcChips = listOf(D, 'SOURCES');
+  function save() {
+    var parts = H.filter(function (h) { return Number(Q.parts[h.name]) > 0; }), total = partsTotal(), grp = 'q-' + uuid().slice(0, 8);
+    if (!isYmd_(Q.date)) { err.textContent = 'Enter the date.'; return; }
+    if (!parts.length) { err.textContent = 'Enter the total cost or the amounts.'; return; }
+    if (Q.direct && !Q.source) { err.textContent = 'Choose which income it was paid from.'; return; }
+    var items = [], ctx = ctxOf(D), e = '';
+    if (Q.direct) items.push({ tab: 'INCOME', rec: { date: Q.date, source: Q.source, detail: 'Qurbani, paid directly', collected_by: cust, amount: String(total), mode: '', note: 'Paid directly for Qurbani; never reached ' + (cust || 'the custodian'), extra: JSON.stringify({ direct: 'qurbani', qurbani: grp }) } });
+    var byCust = !Q.direct && Q.payer === cust, other = !Q.direct && Q.payer !== cust;
+    if (!Q.direct && !Q.payer) { err.textContent = 'Choose who paid for it.'; return; }
+    parts.forEach(function (h) {
+      items.push({ tab: 'PAYMENTS', rec: { date: Q.date, batch: 'Qurbani', heir: h.name, type: 'Qurbani', amount: String(Number(Q.parts[h.name])), cash: byCust ? 'Y' : 'N',
+        note: Q.direct ? 'Qurbani paid from ' + Q.source : byCust ? 'Qurbani paid from cash by ' + cust : 'Qurbani paid by ' + Q.payer, extra: JSON.stringify({ qurbani: grp }) } });
+    });
+    if (other) items.push({ tab: 'PAYMENTS', rec: { date: Q.date, batch: 'Qurbani', heir: Q.payer, type: 'Adjustment', amount: String(-total), cash: 'N',
+      note: Q.payer + ' paid the whole Qurbani (' + groupNum_(total) + '); credited back', extra: JSON.stringify({ qurbani: grp }) } });
+    items.forEach(function (it) { if (!e) e = validateRecord_(it.tab, it.rec, ctx); });
+    var fy = fyOfMonth_(Q.date.slice(0, 7));
+    if (!e && closedYears(D).indexOf(fy) >= 0) e = fy + ' is closed.';
+    if (e) { err.textContent = e; return; }
+    items.forEach(function (it) { T.S.outbox.push({ op: 'save', tab: it.tab, req_id: uuid(), rec: it.rec }); });
+    T.form = null; if (fy !== curFy()) T.S.fy = fy;
+    saveState().then(function () { go('home'); toast('Qurbani saved: ' + items.length + ' entries.', true); sync(true); });
+  }
+  var directSw = el('input', { id: 'q-direct', type: 'checkbox', checked: Q.direct, onchange: function (e) { Q.direct = e.target.checked; srcBox.classList.toggle('hidden', !Q.direct); payBox.classList.toggle('hidden', Q.direct); drawSum(); } });
+  var payBox = el('div', { class: Q.direct ? 'hidden' : '', id: 'qpaybox' }, el('label', { class: 'f', text: 'Who paid for it?' }),
+    chips(H.map(function (h) { return h.name; }).filter(function (n) { return n === cust || n === (set.tbz_collector || ''); }).concat(H.map(function (h) { return h.name; }).filter(function (n) { return n !== cust && n !== (set.tbz_collector || ''); })),
+      Q.payer, function (x) { Q.payer = x; drawSum(); }, 'q-payer'));
+  var srcBox = el('div', { class: Q.direct ? '' : 'hidden', id: 'qsrcbox' }, el('label', { class: 'f', text: 'Paid from' }),
+    chips(srcChips, Q.source, function (x) { Q.source = x; drawSum(); }, 'q-source'));
+  drawParts();
+  return el('div', null, backBar('Qurbani', T.prevScreen || 'home'),
+    el('label', { class: 'f', for: 'q-date', text: 'Date' }),
+    el('input', { id: 'q-date', type: 'date', value: Q.date, max: todayPk(), oninput: function (e) { Q.date = e.target.value; } }),
+    el('label', { class: 'f', for: 'q-total', text: 'Total cost of the shared Qurbani (Rs)' }),
+    el('input', { id: 'q-total', inputmode: 'numeric', autocomplete: 'off', value: Q.total, placeholder: 'Rupees', oninput: function (e) {
+      var v = e.target.value.replace(/[^\d]/g, ''); e.target.value = v; Q.total = v; Q.typed = {}; split(); drawParts();
+    } }),
+    el('label', { class: 'switch', for: 'q-direct' }, el('span', { text: 'Paid from ' + (set.fixed_name || 'income') + ' (or other income), never reached ' + (cust || 'the custodian') }), directSw),
+    srcBox, payBox,
+    el('label', { class: 'f', text: 'Each person’s part' }), list, totalHint,
+    btn('primary wide', 'check', 'Save Qurbani', save, 'qsave'), err);
+};
+
 // ---------- photos ----------
 function photoStrip(tab, r, closed) {
   var D = view(), ref = r.id || r.key;
@@ -891,6 +971,7 @@ SCREENS.summary = function () {
       el('div', { text: 'Opening (' + R.cash.openingFrom + ')' }), el('div', { text: groupNum_(R.cash.opening) }),
       el('div', { text: 'Collected by ' + R.custodian }), el('div', { text: groupNum_(R.cash.collected) }),
       R.cash.fundIn ? [el('div', { text: 'Money back to fund' }), el('div', { text: groupNum_(R.cash.fundIn) })] : null,
+      R.cash.direct ? [el('div', { class: 'sm', text: 'Not in cash: paid directly from income (Qurbani)' }), el('div', { class: 'sm', text: groupNum_(R.cash.direct) })] : null,
       el('div', { text: 'Less outflows paid by ' + R.custodian }), el('div', { text: groupNum_(-R.cash.outPaid) }),
       el('div', { text: 'Less cash paid to heirs' }), el('div', { text: groupNum_(-R.cash.paidHeirs) }),
       el('div', { class: 'tot', text: 'Should be in hand' }), el('div', { class: 'tot', id: 'shouldhave', text: fmtRs(R.cash.shouldHave) }),
@@ -919,7 +1000,8 @@ SCREENS.summary = function () {
     el('h2', null, svg('users'), 'Qurbani split'),
     el('div', { class: 'card' }, el('label', { class: 'f', for: 'qtotal', text: 'Total cost of the shared Qurbani (Rs)' }),
       el('input', { id: 'qtotal', inputmode: 'numeric', autocomplete: 'off', oninput: function (e) { drawQ(e.target.value); } }), qOut,
-      el('p', { class: 'hint', text: 'Split in sevenths as set under Heirs and shares in Settings.' })),
+      el('p', { class: 'hint', text: 'Split in sevenths as set under Heirs and shares in Settings.' }),
+      isCust() && !R.closed ? btn('primary wide', 'plus', 'Record a Qurbani', function () { openQurbani(); }, 'recq') : null),
     el('h2', null, svg('doc'), 'Download'),
     btn('primary wide', 'doc', 'Summary as PDF', function () { shareFile(new Blob([pdfSummary(R)], { type: 'application/pdf' }), 'Rental_Inheritance_Summary_' + R.fy + '.pdf'); }, 'pdfbtn'),
     isCust() ? btn('wide', 'sheet', 'Full ledger as Excel', function () { shareFile(new Blob([xlsxLedger(D, R)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Rental_Inheritance_Ledger_' + todayPk() + '.xlsx'); }, 'xlsxbtn') : null);
@@ -1140,7 +1222,7 @@ function updateApp() {
 function touch() { T.idleAt = Date.now(); }
 ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, touch, true); });
 var _go = go;
-go = function (s) { if (s === 'form' && T.screen !== 'form') T.prevScreen = T.screen; return _go(s); };
+go = function (s) { if ((s === 'form' || s === 'qurbani') && T.screen !== 'form' && T.screen !== 'qurbani') T.prevScreen = T.screen; return _go(s); };
 setInterval(function () { if (T.key && Date.now() - T.idleAt > IDLE_MS) lock(); }, 15000);
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible') { if (T.key && Date.now() - T.idleAt > IDLE_MS) lock(); else if (T.S) sync(true); }
