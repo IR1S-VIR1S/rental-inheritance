@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '6d5670ae';
+var BUILD_ID = 'c355c51f';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -102,7 +102,7 @@ function b64(buf) { var s = '', a = new Uint8Array(buf); for (var i = 0; i < a.l
 function unb64(s) { var b = atob(s), a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
 function deriveKey(pin, salt) {
   return crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']).then(function (base) {
-    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt, iterations: 150000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt, iterations: 150000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   });
 }
 function stored() { try { return JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) { return null; } }
@@ -249,6 +249,7 @@ function render() {
   var fab = bar && isCust() && FAB[T.screen] && FAB[T.screen]();
   if (fab) document.body.appendChild(el('button', { class: 'fab', id: 'fab', type: 'button', onclick: fab[2] }, svg(fab[0]), fab[1]));
   if (T.sheet) document.body.appendChild(T.sheet());
+  if (T.reloadPending) setTimeout(function () { if (T.reloadPending) applyUpdate(); }, 400);
 }
 var FAB = {
   home: function () { return ['plus', 'Add', openAddChooser]; },
@@ -339,7 +340,7 @@ SCREENS.join = function () {
     T.joinApi = inv.api; err.textContent = 'Connecting';
     api({ op: 'join', code: inv.code }).then(function (r) {
       if (!r.ok) { err.textContent = r.error || 'Could not join.'; return; }
-      try { history.replaceState(null, '', location.pathname); } catch (e) { }
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { }
       T.pending = { api: inv.api, token: r.token, role: r.role, name: r.name }; go('setpin');
     }).catch(function () {
       err.textContent = navigator.onLine ? 'The workbook did not answer. In Apps Script check Deploy > Manage deployments: Web app, Execute as Me, Who has access Anyone.' : 'No internet on this phone. Connect and try again.';
@@ -1306,15 +1307,67 @@ function bioCard() {
         }, 'bioon')),
     el('p', { class: 'hint', text: 'Needs iOS 18 or newer. The PIN always works as a backup.' }));
 }
-function updateApp() {
-  if (!('serviceWorker' in navigator)) return toast('Updates need the Home Screen app.');
-  navigator.serviceWorker.getRegistration().then(function (reg) {
-    if (reg && reg.waiting) { reg.waiting.postMessage('skip'); return; }
-    return fetch('sw.js', { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
-      if (t.indexOf(BUILD_ID) >= 0) toast('Already the newest version.');
-      else if (reg) reg.update().then(function () { toast('Downloading the new version. Close and reopen the app.'); });
+// ---------- updates: checked on opening, on coming back and every 5 minutes; applied by a reload at a safe moment ----------
+var HAND = 'ri.handover';
+function swOk() { return 'serviceWorker' in navigator && (location.protocol === 'https:' || (location.hostname === 'localhost' && /[?&]sw=1/.test(location.search))); }
+function checkUpdate() {
+  if (!swOk() || !navigator.onLine) return Promise.resolve(null);
+  return navigator.serviceWorker.getRegistration().then(function (reg) {
+    if (!reg) return null;
+    if (reg.waiting) reg.waiting.postMessage('skip');
+    return reg.update().then(function () { if (reg.waiting) reg.waiting.postMessage('skip'); return reg; });
+  }).catch(function () { return null; });
+}
+// Safe = nothing half typed, no panel open, no PIN or Face ID in progress, no sync running.
+function safeToReload() {
+  var ae = document.activeElement;
+  if (T.syncing || T.bioBusy || T.sheet) return false;
+  if (['form', 'qurbani', 'setpin', 'join', 'loading'].indexOf(T.screen) >= 0) return false;
+  if (ae && ae.matches && ae.matches('input, textarea, select')) return false;
+  if (document.querySelector('.viewer')) return false;
+  return true;
+}
+function applyUpdate() {
+  T.reloadPending = true;
+  if (!safeToReload()) return;
+  T.reloadPending = false;
+  var go2 = function () { location.reload(); };
+  if (!T.key || !T.S) return go2();
+  // Keep him unlocked across the reload: the key is passed in this tab's session storage for 30 seconds and erased on use.
+  saveState().then(function () { return crypto.subtle.exportKey('raw', T.key); }).then(function (raw) {
+    sessionStorage.setItem(HAND, JSON.stringify({ k: b64(raw), exp: Date.now() + 30000, from: BUILD_ID, screen: T.screen, setGroup: T.setGroup || null }));
+  }).catch(function () { }).then(go2, go2);
+}
+function resumeAfterUpdate() {
+  var h = null;
+  try { h = JSON.parse(sessionStorage.getItem(HAND) || 'null'); } catch (e) { }
+  sessionStorage.removeItem(HAND);
+  if (!h || !h.k || h.exp < Date.now() || !stored()) return Promise.resolve(false);
+  var st = stored();
+  return crypto.subtle.importKey('raw', unb64(h.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']).then(function (key) {
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(st.iv) }, key, unb64(st.ct)).then(function (pt) {
+      T.key = key; T.S = JSON.parse(new TextDecoder().decode(pt)); T.S.uploads = T.S.uploads || []; T.S.outbox = T.S.outbox || [];
+      T.idleAt = Date.now(); T.setGroup = h.setGroup || null;
+      T.screen = T.S.data && ['home', 'ledger', 'summary', 'settings'].indexOf(h.screen) >= 0 ? h.screen : T.S.data ? 'home' : 'loading';
+      render();
+      if (h.from !== BUILD_ID) toast('Updated to version ' + BUILD_ID + '.', true);
+      sync(true);
+      return true;
     });
-  }).catch(function () { toast('Could not check for updates.'); });
+  }).catch(function () { return false; });
+}
+function updateApp() {
+  if (!swOk()) return toast('Updates need the Home Screen app.');
+  toast('Checking for a new version.');
+  checkUpdate().then(function (reg) {
+    if (!reg) { toast('Could not check for updates.'); return; }
+    if (!reg.installing && !reg.waiting) {
+      fetch('sw.js', { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
+        if (t.indexOf(BUILD_ID) >= 0) toast('Already the newest version (' + BUILD_ID + ').');
+        else toast('Downloading the new version. The app will refresh by itself.');
+      }).catch(function () { });
+    } else toast('Downloading the new version. The app will refresh by itself.');
+  });
 }
 
 // ---------- start ----------
@@ -1328,13 +1381,19 @@ document.addEventListener('visibilitychange', function () {
 });
 window.addEventListener('online', function () { if (T.S) sync(true); });
 window.addEventListener('offline', function () { if (T.S) renderTop(); });
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(function () { });
-  navigator.serviceWorker.addEventListener('controllerchange', function () { if (!T.key || T.screen === 'unlock') location.reload(); });
+if (swOk()) {
+  var hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function () { checkUpdate(); }).catch(function () { });
+  // A new version has taken over: reload now if safe, otherwise as soon as he finishes what he is doing.
+  navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadController) applyUpdate(); hadController = true; });
+  setInterval(checkUpdate, 5 * 60 * 1000);
+  setInterval(function () { if (T.reloadPending) applyUpdate(); }, 2000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkUpdate(); });
+  document.addEventListener('focusout', function () { if (T.reloadPending) setTimeout(function () { if (T.reloadPending) applyUpdate(); }, 300); });
 }
 (function boot() {
   var st = stored();
   if (st && !st.ct) { localStorage.removeItem(STORE); st = null; }
   T.screen = st ? 'unlock' : 'join';
-  render();
+  resumeAfterUpdate().then(function (done) { if (!done) render(); });
 })();

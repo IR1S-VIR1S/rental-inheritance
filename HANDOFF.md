@@ -8,6 +8,7 @@
 
 | Version | App build | What changed | Tests |
 |---|---|---|---|
+| App only | c355c51f | Automatic updates: new service worker takes over at once (skipWaiting); checks on open, on return and every 5 minutes; reloads itself at a safe moment (not while typing, in a form or a panel) and stays unlocked (PIN key handed across the reload in session storage for 30 s, erased on use); 'Updated to' message | script 166/166, loader 15/15, phone 104/104 x3, update 11/11 x3 |
 | App only | 6d5670ae | This phone section (Face ID, signed in as, versions, Update app, Reset) moved onto the main Settings screen below the group tiles; tile removed | script 166/166, loader 15/15, phone 104/104 x3 |
 | App only | 7788855d | Settings groups and the Add menu shown as tiles, three to a row (icon, short title, one-word status); full summary at the top of each group page | script 166/166, loader 15/15, phone 103/103 x3 |
 | App only | 4aa94bb7 | Settings grouped: one list (Year, Heirs and shares, Amounts and roles, rent rates, Lists, This phone) with a one-line summary each; each opens its own page with Back; Not accepted stays on top; heirs see only This phone | script 166/166, loader 15/15, phone 103/103 x3 |
