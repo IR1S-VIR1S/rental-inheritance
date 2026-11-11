@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '4e8a8816';
+var BUILD_ID = 'b41079ad';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -162,6 +162,7 @@ function sync(quiet) {
     if (T.S !== S) return;
     S.data = r.data; S.role = r.data.role; S.name = r.data.name; S.lastSync = Date.now(); S.syncErr = '';
     S.outbox = S.outbox.filter(function (x) { return !done[x.req_id]; });
+    if (!S.modesSeeded) { seedModes(S); if (S.outbox.length) T.syncAgain = true; }
     return saveState().then(function () { return snapshot(S); });
   }).catch(function (e) {
     if (T.S !== S) return;
@@ -559,7 +560,7 @@ function entryText(tab, r) {
     return { t: r.payee, s: [r.category, r.taken_from, fmtDate(r.date)].filter(Boolean).join(' · '),
       chip: String(r.taken_from).toLowerCase() === 'fund' ? ['wait', 'From fund'] : r.charged !== 'Y' ? ['due', 'Not charged'] : String(r.taken_from).toLowerCase().indexOf(tw) === 0 ? ['wait', 'From ' + r.taken_from] : null };
   }
-  if (tab === 'PAYMENTS') return { t: r.heir + ': ' + r.type, s: [r.batch, fmtDate(r.date), r.cash === 'Y' ? 'cash' : 'not cash'].filter(Boolean).join(' · ') };
+  if (tab === 'PAYMENTS') return { t: r.heir + ': ' + r.type, s: [r.batch, fmtDate(r.date), extraOf(r).mode, r.cash === 'Y' ? 'cash' : 'not cash'].filter(Boolean).join(' · ') };
   if (tab === 'TBZ') return { t: 'TBZ ' + fmtMonth(r.month), s: r.auto ? 'Counted automatically at the rate on file' : [r.received === 'Y' ? 'Received' : 'Not received', Number(r.expenses) ? 'expenses ' + groupNum_(r.expenses) : '', r.note].filter(Boolean).join(' · '),
     chip: r.auto ? ['wait', 'Auto'] : r.received === 'Y' ? null : ['due', 'Not received'] };
   if (tab === 'FUND_IN') return { t: 'Back to fund: ' + r.from_whom, s: fmtDate(r.date) };
@@ -589,6 +590,8 @@ function openEntry(tab, r) {
   sheetOpen(function () {
     var reason;
     var kv = Object.keys(SCHEMA[tab].fields).map(function (k) { var v = fieldText(tab, k, r[k]); return v ? [el('div', { text: SCHEMA[tab].fields[k].label }), el('div', { text: v })] : null; });
+    var vf = VFIELDS[tab] || {}, ex0 = extraOf(r);
+    Object.keys(vf).forEach(function (k) { if (ex0[vf[k].key]) kv.push([el('div', { text: vf[k].label }), el('div', { text: ex0[vf[k].key] })]); });
     return sheetWrap(SCHEMA[tab].label, el('div', { class: 'detail' }, [
       el('h2', null, svg(KIND_ICON[tab]), SCHEMA[tab].label + (r.id ? ' ' + r.id : '')),
       r.pending ? el('div', { class: 'pending' + (r.error ? ' bad' : ''), text: r.error ? 'Not accepted: ' + r.error : 'Waiting to send' }) : null,
@@ -700,6 +703,8 @@ function openForm(tab, r, preset) {
       f.rent = f.rent || (f.month ? tbzRate(D, f.month) : '');
     }
   }
+  var vfs = VFIELDS[tab] || {}, exf = extraOf(r || preset || {});
+  Object.keys(vfs).forEach(function (k) { if (f[k] === undefined) f[k] = exf[vfs[k].key] || ''; });
   T.form = { tab: tab, f: f, orig: r || null, photos: [], minus: {} };
   Object.keys(SCHEMA[tab].fields).forEach(function (k) { if (SCHEMA[tab].fields[k].t === 'samt' && Number(f[k]) < 0) { T.form.minus[k] = true; f[k] = String(-Number(f[k])); } });
   T.sheet = null; go('form');
@@ -707,17 +712,41 @@ function openForm(tab, r, preset) {
 var FORM_LAYOUT = {
   INCOME: ['date', 'source', 'detail', 'collected_by', 'amount', 'mode', 'note'],
   OUTFLOWS: ['date', 'category', 'payee', 'amount', 'taken_from', 'paid_by', 'charged', 'note'],
-  PAYMENTS: ['heir', 'type', 'amount', 'date', 'batch', 'note'],
+  PAYMENTS: ['heir', 'type', 'amount', 'pay_mode', 'date', 'batch', 'note'],
   TBZ: ['month', 'rent', 'received', 'note'],
   FUND_IN: ['date', 'from_whom', 'amount', 'note'],
   OPENING: ['item', 'amount', 'note']
 };
-var SUGGEST = { taken_from: 'TAKEN_FROM', mode: 'MODES' };
+var SUGGEST = { taken_from: 'TAKEN_FROM', mode: 'MODES', pay_mode: 'MODES' };
+// Banks and accounts offered as tags. Added once to the workbook's MODES list so they can be switched off in Settings > Lists.
+var DEFAULT_MODES = ['Cash', 'ABL', 'MCB', 'Meezan Bank', 'HBL', 'UBL', 'Bank Alfalah', 'PCB transfer', 'JazzCash', 'Easypaisa'];
+// Fields kept in the "extra" column (no workbook change needed): tab -> field -> {key in extra, label}.
+var VFIELDS = { PAYMENTS: { pay_mode: { key: 'mode', label: 'Paid by (cash or bank)' } } };
+function modeList(D) {
+  var all = (D.tables.LISTS || []).filter(function (r) { return r.list === 'MODES'; }), off = all.filter(function (r) { return String(r.active) === 'N'; }).map(function (r) { return r.value; });
+  var vals = listOf(D, 'MODES');
+  DEFAULT_MODES.forEach(function (m) { if (vals.indexOf(m) < 0 && off.indexOf(m) < 0) vals.push(m); });
+  return vals;
+}
+function seedModes(S) {
+  if (S.role !== 'custodian' || !S.data || S.modesSeeded) return;
+  var have = (S.data.tables.LISTS || []).filter(function (r) { return r.list === 'MODES'; }).map(function (r) { return String(r.value).toLowerCase(); });
+  var n = have.length;
+  DEFAULT_MODES.forEach(function (m) {
+    if (have.indexOf(m.toLowerCase()) < 0) { n++; S.outbox.push({ op: 'save', tab: 'LISTS', req_id: uuid(), rec: { list: 'MODES', value: m, active: 'Y', sort: String(n) } }); }
+  });
+  S.modesSeeded = 1;
+}
+function addModeIfNew(D, v) {
+  v = String(v || '').trim();
+  if (!v || (D.tables.LISTS || []).some(function (r) { return r.list === 'MODES' && String(r.value).toLowerCase() === v.toLowerCase(); })) return;
+  T.S.outbox.push({ op: 'save', tab: 'LISTS', req_id: uuid(), rec: { list: 'MODES', value: v, active: 'Y', sort: String((D.tables.LISTS || []).length + 1) } });
+}
 SCREENS.form = function () {
   var F = T.form, tab = F.tab, f = F.f, D = view(), S = SCHEMA[tab], err = el('div', { class: 'err', id: 'formerr' });
   var heirs = heirsOf(D).map(function (h) { return h.name; });
   function fieldEl(k) {
-    var def = S.fields[k], id = 'f-' + k, label = el('label', { class: 'f', for: id, text: def.label + (def.req ? '' : ' (optional)') });
+    var def = S.fields[k] || { t: 'text', label: VFIELDS[tab][k].label }, id = 'f-' + k, label = el('label', { class: 'f', for: id, text: def.label + (def.req ? '' : ' (optional)') });
     if (def.t === 'date') return [label, el('input', { id: id, type: 'date', value: f[k] || '', max: todayPk(), oninput: function (e) { f[k] = e.target.value; } })];
     if (def.t === 'month') return [label, el('input', { id: id, type: 'month', value: f[k] || '', oninput: function (e) {
       f[k] = e.target.value; if (tab === 'TBZ' && !F.rentTyped && f.month) { f.rent = tbzRate(D, f.month) || f.rent; var ri = document.getElementById('f-rent'); if (ri) { ri.value = f.rent; ri.dispatchEvent(new Event('input')); } }
@@ -745,8 +774,9 @@ SCREENS.form = function () {
     }
     var long = k === 'note' || k === 'payee';
     var input = el(long ? 'textarea' : 'input', { id: id, maxlength: '500', value: long ? null : (f[k] || ''), autocomplete: 'off', oninput: function (e) { f[k] = e.target.value; } }, long ? (f[k] || '') : null);
-    var sv = SUGGEST[k] ? listOf(D, SUGGEST[k]) : [];
+    var sv = SUGGEST[k] === 'MODES' ? modeList(D) : SUGGEST[k] ? listOf(D, SUGGEST[k]) : [];
     if (k === 'taken_from') { var tw = settingsOf(D).tbz_taken_from || 'TBZ'; if (sv.indexOf(tw) < 0) sv = sv.concat([tw]); }
+    if (k === 'pay_mode') input.setAttribute('placeholder', 'Or type another bank or account');
     var sugg = SUGGEST[k] ? chips(sv, f[k], function (x) { f[k] = x; input.value = x; if (k === 'taken_from') drawFundHint(); }, id + '-chips') : null;
     if (k === 'taken_from') input.addEventListener('input', drawFundHint);
     if (k === 'item') sugg = chips(heirs.concat(['Cash']), f[k], function (x) { f[k] = x; input.value = x; }, id + '-chips');
@@ -774,7 +804,10 @@ SCREENS.form = function () {
     if (tab === 'OUTFLOWS' && rec.taken_from.toLowerCase() === 'fund') { rec.taken_from = 'Fund'; rec.charged = 'N'; }
     if (tab === 'PAYMENTS') rec.cash = rec.type === 'Adjustment' ? 'N' : 'Y';
     if (tab === 'OPENING') rec.fy = F.f.fy || curFy();
-    if (f.extra) rec.extra = f.extra;
+    var ex = extraOf(F.orig || f), vf = VFIELDS[tab] || {};
+    Object.keys(vf).forEach(function (k) { var v = String(f[k] || '').trim(); if (v) ex[vf[k].key] = v; else delete ex[vf[k].key]; });
+    if (Object.keys(ex).length) rec.extra = JSON.stringify(ex);
+    if (tab === 'PAYMENTS' || tab === 'INCOME') addModeIfNew(D, tab === 'PAYMENTS' ? f.pay_mode : f.mode);
     if (F.orig && F.orig.id) rec.id = F.orig.id;
     var e = validateRecord_(tab, rec, ctxOf(D, F.orig));
     if (!e && tab === 'TBZ' && D.tables.TBZ.some(function (x) { return x.month === rec.month && rowKey(x) !== (F.orig ? rowKey(F.orig) : ''); })) e = fmtMonth(rec.month) + ' is already changed. Tap it on the month grid to edit it.';

@@ -180,7 +180,7 @@ function sheetXml(rows, widths) {
 function tabSheet(D, tab) {
   var S = SCHEMA[tab], keys = Object.keys(S.fields);
   var head = [{ v: 'ID', t: 'h' }].concat(S.fyFrom ? [{ v: 'Year', t: 'h' }] : [], keys.map(function (k) { return { v: S.fields[k].label, t: 'h' }; }),
-    [{ v: 'Entered', t: 'h' }, { v: 'Entered by', t: 'h' }, { v: 'Changed', t: 'h' }, { v: 'Changed by', t: 'h' }]);
+    tab === 'PAYMENTS' ? [{ v: 'Paid by (cash or bank)', t: 'h' }] : [], [{ v: 'Entered', t: 'h' }, { v: 'Entered by', t: 'h' }, { v: 'Changed', t: 'h' }, { v: 'Changed by', t: 'h' }]);
   var rows = (D.tables[tab] || []).map(function (r) {
     return [{ v: r.id || '(waiting to send)', t: 's' }].concat(S.fyFrom ? [{ v: r.fy, t: 's' }] : [], keys.map(function (k) {
       var t = S.fields[k].t, v = r[k];
@@ -188,9 +188,9 @@ function tabSheet(D, tab) {
       if (t === 'amt' || t === 'samt' || t === 'int') return { v: Number(v), t: 'n' };
       if (t === 'date' && isYmd_(v)) return { v: v, t: 'd' };
       return { v: String(v), t: 's' };
-    }), [{ v: r.entered_at || '', t: 's' }, { v: r.entered_by || '', t: 's' }, { v: r.updated_at || '', t: 's' }, { v: r.updated_by || '', t: 's' }]);
+    }), tab === 'PAYMENTS' ? [extraOf(r).mode ? { v: extraOf(r).mode, t: 's' } : null] : [], [{ v: r.entered_at || '', t: 's' }, { v: r.entered_by || '', t: 's' }, { v: r.updated_at || '', t: 's' }, { v: r.updated_by || '', t: 's' }]);
   });
-  return sheetXml([head].concat(rows), [9].concat(S.fyFrom ? [9] : [], keys.map(function (k) { var t = S.fields[k].t; return t === 'text' ? 28 : t === 'date' ? 12 : 14; }), [19, 12, 19, 12]));
+  return sheetXml([head].concat(rows), [9].concat(S.fyFrom ? [9] : [], keys.map(function (k) { var t = S.fields[k].t; return t === 'text' ? 28 : t === 'date' ? 12 : 14; }), tab === 'PAYMENTS' ? [16] : [], [19, 12, 19, 12]));
 }
 function xlsxLedger(D, R) {
   var sheets = [{ name: 'Summary ' + R.fy, xml: sheetXml([[{ v: 'Item', t: 'h' }, { v: 'Value', t: 'h' }]].concat(summaryRows(R).map(function (r) {
