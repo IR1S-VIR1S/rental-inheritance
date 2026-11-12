@@ -5,8 +5,9 @@
  * and sends the ledger to the phones. Every calculation lives in the phone app.
  * Pure ASCII only (the update code is a SHA-256 of this file).
  */
-var VERSION = '1.0';
-var RELEASE_NOTE = '1.0: first version. Ledger tabs for income, outflows, payments to heirs, TBZ months, money back to fund and opening balances; ' +
+var VERSION = '1.1';
+var RELEASE_NOTE = '1.1: an heir\'s account kept by another heir (expenses, other money in, repeating charges, money held). The keeper\'s phone can write only those three tabs; the custodian can view them; other heirs never receive them. Adds tabs AF_EXP, AF_IN, AF_RECUR, AF_HELD and settings fund_for and fund_keeper. Nothing removed. ' +
+  '1.0: first version. Ledger tabs for income, outflows, payments to heirs, TBZ months, money back to fund and opening balances; ' +
   'lists and rates kept as rows; custodian phone enters, heirs view; invitations; receipt photos in Drive; audit trail with a check; 2025-26 brought in as a closed year.';
 
 //== SHARED START
@@ -52,10 +53,24 @@ var SCHEMA = {
   HEIRS: { prefix: 'H', label: 'Heir', fields: {
     name: { t: 'text', req: 1, label: 'Name' }, share: { t: 'frac', req: 1, label: 'Inheritance share' },
     qurbani: { t: 'int', label: 'Qurbani share (of 7)' }, note: { t: 'text', label: 'Role' } } },
+  AF_EXP: { prefix: 'A', fyFrom: 'date', label: 'Account expense', fields: {
+    date: { t: 'date', req: 1, label: 'Date' }, category: { t: 'text', req: 1, label: 'What for' }, details: { t: 'text', req: 1, label: 'Details' },
+    paid_to: { t: 'text', label: 'Paid to' }, amount: { t: 'amt', req: 1, label: 'Amount (Rs)' }, mode: { t: 'text', label: 'Cash or bank' },
+    recur_id: { t: 'text', label: 'Repeating charge' }, note: { t: 'text', label: 'Note' } } },
+  AF_IN: { prefix: 'N', fyFrom: 'date', label: 'Other money in', fields: {
+    date: { t: 'date', req: 1, label: 'Date' }, source: { t: 'text', req: 1, label: 'From where' }, details: { t: 'text', label: 'Details' },
+    amount: { t: 'amt', req: 1, label: 'Amount (Rs)' }, mode: { t: 'text', label: 'Cash or bank' }, note: { t: 'text', label: 'Note' } } },
+  AF_RECUR: { prefix: 'C', label: 'Repeating charge', fields: {
+    name: { t: 'text', req: 1, label: 'Name' }, category: { t: 'text', req: 1, label: 'What for' }, amount: { t: 'amt', req: 1, label: 'Usual amount (Rs)' },
+    day: { t: 'day', req: 1, label: 'Day of the month' }, active: { t: 'yn', req: 1, label: 'In use' }, note: { t: 'text', label: 'Note' } } },
+  AF_HELD: { prefix: 'K', label: 'Money held', fields: {
+    date: { t: 'date', req: 1, label: 'Date' }, amount: { t: 'int', req: 1, label: 'Held in cash and bank (Rs)' }, note: { t: 'text', label: 'Note' } } },
   SETTINGS: { prefix: 'S', label: 'Setting', fields: {
     key: { t: 'text', req: 1, label: 'Setting' }, value: { t: 'text', label: 'Value' }, note: { t: 'text', label: 'Note' } } }
 };
 var LIST_NAMES = ['SOURCES', 'CATEGORIES', 'PAYMENT_TYPES', 'TAKEN_FROM', 'MODES'];
+// Tabs of the heir's account kept by another heir: only the keeper's phone writes them; only keeper and custodian receive them.
+var AF_TABS = ['AF_EXP', 'AF_IN', 'AF_RECUR', 'AF_HELD'];
 
 function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 function isYmd_(s) {
@@ -120,12 +135,14 @@ function checkField_(F, v, ctx, oldV) {
   if (t === 'amt' || t === 'samt' || t === 'int') {
     var n = Number(s);
     if (!isFinite(n) || Math.round(n) !== n) return 'whole rupees only.';
+    if (t === 'int' && n < 0) return 'cannot be minus.';
     if (Math.abs(n) > CFG.MAX_AMOUNT) return 'too large. Check it.';
     if (t === 'amt' && n <= 0) return 'must be more than 0.';
     if (t === 'samt' && n === 0) return 'cannot be 0.';
     return '';
   }
   if (t === 'yn') return s === 'Y' || s === 'N' ? '' : 'choose Y or N.';
+  if (t === 'day') { var dn = Number(s); return Math.round(dn) === dn && dn >= 1 && dn <= 28 ? '' : 'a day from 1 to 28.'; }
   if (t === 'frac') { var f = fracVal_(s); return f >= 0 && f <= 1 ? '' : 'write it like 1/3.'; }
   if (t === 'heir') {
     var hs = (ctx && ctx.heirs) || [];
@@ -330,6 +347,25 @@ function seed_() {
   }
 }
 
+// Setting rows added in later versions are created on an existing workbook (blank, or from History.gs when it has them).
+var LATER_SETTINGS = [
+  { key: 'fund_for', note: 'Heir whose account is kept by another heir (name)' },
+  { key: 'fund_keeper', note: 'Heir who keeps that account and enters its expenses (name)' }
+];
+function addMissingSettings_() {
+  var rows = readRows_('SETTINGS'), have = rows.map(function (r) { return String(r.key); }), add = [], stamp = nowStamp_();
+  var max = rows.reduce(function (m, r) { var k = +String(r.id).replace(/\D/g, ''); return k > m ? k : m; }, 0);
+  LATER_SETTINGS.forEach(function (x) {
+    if (have.indexOf(x.key) >= 0) return;
+    var h = ((HIST && HIST.settings) || []).filter(function (y) { return y.key === x.key; })[0];
+    max++;
+    add.push({ id: 'S' + ('0000' + max).slice(-5), key: x.key, value: h ? h.value : '', note: x.note, entered_at: stamp, entered_by: 'setup', req_id: 'later-' + x.key });
+  });
+  if (add.length) append_('SETTINGS', add);
+}
+function keeperOf_(set) { return String(set.fund_keeper || '').trim().toLowerCase(); }
+function isKeeper_(who, set) { var k = keeperOf_(set || settings_()); return !!k && String(who.name || '').trim().toLowerCase() === k; }
+
 // ---------- menu actions ----------
 function setup() {
   Object.keys(SCHEMA).concat(Object.keys(SUPPORT)).forEach(function (t) { sheet_(t); });
@@ -341,6 +377,7 @@ function setup() {
     p.setProperty('PI_EMAIL', me);
   }
   seed_();
+  addMissingSettings_();
   p.setProperty('SCHEMA_VER', String(CFG.SCHEMA_VER));
   log_('setup', 'version ' + VERSION);
   SpreadsheetApp.getUi().alert(CFG.APP_NAME + ' ' + VERSION + ' is ready.\n\nNext: Deploy > Manage deployments (or New deployment the first time), then "Set up my phone (custodian)".');
@@ -465,10 +502,12 @@ function api_(b) {
   who = JSON.parse(who);
   if (b.op === 'hello') return { ok: true, role: who.role, name: who.name, version: VERSION };
   if (b.op === 'pull') return pull_(who, b.token);
-  if (b.op === 'file') return getFile_(b);
-  if (who.role !== 'custodian') return { ok: false, code: 403, error: 'This phone can view only.' };
-  if (b.op === 'push') return push_(b.items || [], who);
-  if (b.op === 'upload') return upload_(b, who);
+  if (b.op === 'file') return getFile_(b, who);
+  var keeper = who.role !== 'custodian' && isKeeper_(who);
+  if (who.role !== 'custodian' && !keeper) return { ok: false, code: 403, error: 'This phone can view only.' };
+  if (b.op === 'push') return push_(b.items || [], who, keeper);
+  if (b.op === 'upload') return upload_(b, who, keeper);
+  if (keeper) return { ok: false, code: 403, error: 'This phone can enter only the account it keeps.' };
   if (b.op === 'snapshot') return snapshot_(b);
   return { ok: false, code: 400, error: 'unknown operation' };
 }
@@ -495,15 +534,16 @@ function clean_(tab, r) {
   return o;
 }
 function pull_(who, token) {
-  var D = { version: VERSION, today: today_(), role: who.role, name: who.name, tables: {} };
-  Object.keys(SCHEMA).forEach(function (t) { D.tables[t] = readRows_(t).map(function (r) { return clean_(t, r); }); });
-  D.files = readRows_('FILES').map(function (f) { return { file_id: f.file_id, tab: f.tab, ref_id: String(f.ref_id), name: f.name, bytes: +f.bytes }; });
+  var set = settings_(), seesAF = who.role === 'custodian' || isKeeper_(who, set);
+  var D = { version: VERSION, today: today_(), role: who.role, name: who.name, keeper: who.role !== 'custodian' && isKeeper_(who, set), tables: {} };
+  Object.keys(SCHEMA).forEach(function (t) { D.tables[t] = AF_TABS.indexOf(t) >= 0 && !seesAF ? [] : readRows_(t).map(function (r) { return clean_(t, r); }); });
+  D.files = readRows_('FILES').filter(function (f) { return seesAF || AF_TABS.indexOf(String(f.tab)) < 0; }).map(function (f) { return { file_id: f.file_id, tab: f.tab, ref_id: String(f.ref_id), name: f.name, bytes: +f.bytes }; });
   var p = PropertiesService.getScriptProperties(), k = 'APP_' + sha_(token), raw = p.getProperty(k);
   if (raw) { var v = JSON.parse(raw), d = today_(); if (v.seen !== d) { v.seen = d; p.setProperty(k, JSON.stringify(v)); } }
   return { ok: true, data: D };
 }
 
-function push_(items, who) {
+function push_(items, who, keeper) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   var results = [];
@@ -511,7 +551,8 @@ function push_(items, who) {
     var ctx = context_(), closed = closedYears_(), stamp = nowStamp_();
     items.forEach(function (it) {
       var res;
-      try { res = pushOne_(it, who, ctx, closed, stamp); }
+      var af = it && AF_TABS.indexOf(it.tab) >= 0;
+      try { res = keeper && !af ? { ok: false, error: 'This phone can enter only the account it keeps.' } : !keeper && af ? { ok: false, error: 'Only the account keeper enters this account.' } : pushOne_(it, who, ctx, closed, stamp); }
       catch (err) { res = { ok: false, error: 'Server error: ' + String(err && err.message || err) }; }
       res.req_id = it && it.req_id;
       results.push(res);
@@ -594,8 +635,9 @@ function photosFolder_() {
   p.setProperty('PHOTOS_FOLDER', f.getId());
   return f;
 }
-function upload_(b, who) {
+function upload_(b, who, keeper) {
   if (!SCHEMA[b.tab]) return { ok: false, error: 'Unknown attachment.' };
+  if (keeper ? (b.tab !== 'AF_EXP' && b.tab !== 'AF_IN') : AF_TABS.indexOf(b.tab) >= 0) return { ok: false, code: 403, error: keeper ? 'This phone can attach photos only to its account.' : 'Only the account keeper attaches photos there.' };
   if (!/^image\/(jpeg|png)$/.test(b.mime || '')) return { ok: false, error: 'Only photos can be attached.' };
   if (!b.b64 || b.b64.length > 8 * 1024 * 1024) return { ok: false, error: 'That photo is too large.' };
   if (!b.req_id || !b.ref) return { ok: false, error: 'Missing details.' };
@@ -619,9 +661,10 @@ function upload_(b, who) {
     return { ok: true, file_id: row.file_id, ref_id: parent.id };
   } finally { lock.releaseLock(); }
 }
-function getFile_(b) {
+function getFile_(b, who) {
   var f = readRows_('FILES').filter(function (x) { return x.file_id === b.file_id; })[0];
   if (!f) return { ok: false, error: 'Photo not found.' };
+  if (AF_TABS.indexOf(String(f.tab)) >= 0 && who && who.role !== 'custodian' && !isKeeper_(who)) return { ok: false, code: 403, error: 'Photo not found.' };
   var blob = DriveApp.getFileById(f.drive_id).getBlob();
   return { ok: true, mime: f.mime, b64: Utilities.base64Encode(blob.getBytes()) };
 }

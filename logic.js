@@ -43,10 +43,24 @@ var SCHEMA = {
   HEIRS: { prefix: 'H', label: 'Heir', fields: {
     name: { t: 'text', req: 1, label: 'Name' }, share: { t: 'frac', req: 1, label: 'Inheritance share' },
     qurbani: { t: 'int', label: 'Qurbani share (of 7)' }, note: { t: 'text', label: 'Role' } } },
+  AF_EXP: { prefix: 'A', fyFrom: 'date', label: 'Account expense', fields: {
+    date: { t: 'date', req: 1, label: 'Date' }, category: { t: 'text', req: 1, label: 'What for' }, details: { t: 'text', req: 1, label: 'Details' },
+    paid_to: { t: 'text', label: 'Paid to' }, amount: { t: 'amt', req: 1, label: 'Amount (Rs)' }, mode: { t: 'text', label: 'Cash or bank' },
+    recur_id: { t: 'text', label: 'Repeating charge' }, note: { t: 'text', label: 'Note' } } },
+  AF_IN: { prefix: 'N', fyFrom: 'date', label: 'Other money in', fields: {
+    date: { t: 'date', req: 1, label: 'Date' }, source: { t: 'text', req: 1, label: 'From where' }, details: { t: 'text', label: 'Details' },
+    amount: { t: 'amt', req: 1, label: 'Amount (Rs)' }, mode: { t: 'text', label: 'Cash or bank' }, note: { t: 'text', label: 'Note' } } },
+  AF_RECUR: { prefix: 'C', label: 'Repeating charge', fields: {
+    name: { t: 'text', req: 1, label: 'Name' }, category: { t: 'text', req: 1, label: 'What for' }, amount: { t: 'amt', req: 1, label: 'Usual amount (Rs)' },
+    day: { t: 'day', req: 1, label: 'Day of the month' }, active: { t: 'yn', req: 1, label: 'In use' }, note: { t: 'text', label: 'Note' } } },
+  AF_HELD: { prefix: 'K', label: 'Money held', fields: {
+    date: { t: 'date', req: 1, label: 'Date' }, amount: { t: 'int', req: 1, label: 'Held in cash and bank (Rs)' }, note: { t: 'text', label: 'Note' } } },
   SETTINGS: { prefix: 'S', label: 'Setting', fields: {
     key: { t: 'text', req: 1, label: 'Setting' }, value: { t: 'text', label: 'Value' }, note: { t: 'text', label: 'Note' } } }
 };
 var LIST_NAMES = ['SOURCES', 'CATEGORIES', 'PAYMENT_TYPES', 'TAKEN_FROM', 'MODES'];
+// Tabs of the heir's account kept by another heir: only the keeper's phone writes them; only keeper and custodian receive them.
+var AF_TABS = ['AF_EXP', 'AF_IN', 'AF_RECUR', 'AF_HELD'];
 
 function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 function isYmd_(s) {
@@ -111,12 +125,14 @@ function checkField_(F, v, ctx, oldV) {
   if (t === 'amt' || t === 'samt' || t === 'int') {
     var n = Number(s);
     if (!isFinite(n) || Math.round(n) !== n) return 'whole rupees only.';
+    if (t === 'int' && n < 0) return 'cannot be minus.';
     if (Math.abs(n) > CFG.MAX_AMOUNT) return 'too large. Check it.';
     if (t === 'amt' && n <= 0) return 'must be more than 0.';
     if (t === 'samt' && n === 0) return 'cannot be 0.';
     return '';
   }
   if (t === 'yn') return s === 'Y' || s === 'N' ? '' : 'choose Y or N.';
+  if (t === 'day') { var dn = Number(s); return Math.round(dn) === dn && dn >= 1 && dn <= 28 ? '' : 'a day from 1 to 28.'; }
   if (t === 'frac') { var f = fracVal_(s); return f >= 0 && f <= 1 ? '' : 'write it like 1/3.'; }
   if (t === 'heir') {
     var hs = (ctx && ctx.heirs) || [];

@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '5aa9532c';
+var BUILD_ID = 'bf098d9a';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -46,6 +46,7 @@ var ICONS = {
   x: 'M18 6L6 18|M6 6l12 12',
   back: 'M15 18l-6-6 6-6',
   next: 'M9 18l6-6-6-6',
+  wallet: 'M3 7a2 2 0 0 1 2-2h13v4|M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z|M16 14h.01',
   book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20|M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z|M9 7h7|M9 11h7',
   down: 'M6 9l6 6 6-6',
   trash: 'M3 6h18|M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6|M10 11v6|M14 11v6|M9 6V4h6v2',
@@ -95,6 +96,8 @@ function uuid() {
   return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
 }
 function isCust() { return T.S && T.S.role === 'custodian'; }
+// The account tabs are entered only by the keeper's phone; everything else only by the custodian's.
+function canEditTab(tab) { return ['AF_EXP', 'AF_RECUR', 'AF_HELD', 'AF_IN'].indexOf(tab) >= 0 ? isKeeperPhone() : isCust(); }
 function rowKey(r) { return r.id || 'q:' + r.key; }
 function amtCls(n) { return Number(n) < 0 ? 'amt neg' : 'amt'; }
 
@@ -147,7 +150,7 @@ function sync(quiet) {
   if (!navigator.onLine) { if (!quiet) toast('No signal. Saved on this phone.'); softRender(); return Promise.resolve(); }
   T.syncing = true; renderTop();
   var S = T.S, items = S.outbox.filter(function (x) { return !x.error; }), done = {};
-  var p = items.length && isCust() ? api({ op: 'push', token: S.token, items: items }) : Promise.resolve({ ok: true, results: [] });
+  var p = items.length && (isCust() || isKeeperPhone()) ? api({ op: 'push', token: S.token, items: items }) : Promise.resolve({ ok: true, results: [] });
   var chain = p.then(function (r) {
     if (!r.ok) throw r;
     (r.results || []).forEach(function (res) {
@@ -156,7 +159,7 @@ function sync(quiet) {
       if (res.ok) { done[res.req_id] = 1; if (res.id) S.uploads.forEach(function (u) { if (u.ref === o.req_id) u.ref = res.id; }); }
       else { o.error = res.error || 'Refused.'; o.gone = !!res.gone; }
     });
-    return isCust() ? sendPhotos(S) : null;
+    return isCust() || isKeeperPhone() ? sendPhotos(S) : null;
   }).then(function () {
     return api({ op: 'pull', token: S.token });
   }).then(function (r) {
@@ -252,35 +255,37 @@ function updateScrollLock() {
   }
 }
 var BAR = [['home', 'home', 'Home'], ['ledger', 'ledger', 'Ledger'], ['summary', 'summary', 'Summary'], ['settings', 'gear', 'Settings']];
+function barItems() { var b = BAR.slice(); if (typeof canSeeFund === 'function' && canSeeFund()) b.splice(3, 0, ['fund', 'wallet', fundCfg(T.S.data).who]); return b; }
 function render() {
   var app = document.getElementById('app');
-  var bar = T.S && T.S.data && BAR.some(function (b) { return b[0] === T.screen; });
+  var bar = T.S && T.S.data && barItems().some(function (b) { return b[0] === T.screen; });
   app.className = bar ? '' : 'nobar';
   var fn = SCREENS[T.screen] || SCREENS.boot, main = el('main', { class: T.slide ? 'slide' : '' }, fn());
   T.slide = false;
   app.replaceChildren(main);
   document.querySelectorAll('.bar,.fab,.sheet-bg').forEach(function (x) { x.remove(); });
   if (bar) document.body.appendChild(barEl());
-  var fab = bar && isCust() && FAB[T.screen] && FAB[T.screen]();
+  var fab = bar && FAB[T.screen] && FAB[T.screen]();
   if (fab) document.body.appendChild(el('button', { class: 'fab', id: 'fab', type: 'button', onclick: fab[2] }, svg(fab[0]), fab[1]));
   if (T.sheet) document.body.appendChild(T.sheet());
   updateScrollLock();
   if (T.reloadPending) setTimeout(function () { if (T.reloadPending) applyUpdate(); }, 400);
 }
 var FAB = {
-  home: function () { return ['plus', 'Add', openAddChooser]; },
-  ledger: function () { return ['plus', 'Add', openAddChooser]; }
+  home: function () { return isCust() ? ['plus', 'Add', openAddChooser] : null; },
+  ledger: function () { return isCust() ? ['plus', 'Add', openAddChooser] : null; },
+  fund: function () { return isKeeperPhone() ? ['plus', 'Expense', function () { if (curClosed()) { toast(curFy() + ' is closed.'); return; } openFundExp(null); }] : null; }
 };
 function softRender() {
   var ae = document.activeElement, typing = ae && ae.matches && ae.matches('#app input, #app textarea');
   if (['unlock', 'join', 'setpin'].indexOf(T.screen) >= 0) return;
-  if (T.screen === 'form' || T.screen === 'qurbani' || T.screen === 'spend' || T.sheet || typing) { renderTop(); return; }
+  if (['form', 'qurbani', 'spend', 'fundexp'].indexOf(T.screen) >= 0 || T.sheet || typing) { renderTop(); return; }
   var y = window.scrollY; render(); window.scrollTo(0, y);
 }
 function renderTop() { var s = document.getElementById('syncpill'); if (s && T.S) s.replaceWith(syncPill()); }
-function go(screen) { if (['home', 'ledger', 'summary'].indexOf(screen) >= 0) T.setGroup = null; T.screen = screen; T.sheet = null; T.slide = true; render(); window.scrollTo(0, 0); }
+function go(screen) { if (['home', 'ledger', 'summary', 'fund'].indexOf(screen) >= 0) T.setGroup = null; T.screen = screen; T.sheet = null; T.slide = true; render(); window.scrollTo(0, 0); }
 function barEl() {
-  return el('nav', { class: 'bar' }, BAR.map(function (b) {
+  return el('nav', { class: 'bar' }, barItems().map(function (b) {
     var n = b[0] === 'settings' && T.S.outbox.some(function (o) { return o.error; }) ? el('span', { class: 'dot' }) : null;
     return el('button', { class: T.screen === b[0] ? 'on' : '', type: 'button', id: 'bar-' + b[0], 'aria-label': b[2], onclick: function () { if (b[0] === 'settings') T.setGroup = null; go(b[0]); } }, svg(b[1]), b[2], n);
   }));
@@ -484,6 +489,7 @@ function stripChips(R) {
   if (refused) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-refused', onclick: function () { T.setGroup = null; go('settings'); } }, svg('alert'), refused + ' not accepted'));
   if (t1) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-t1', onclick: function () { scrollToId('checks'); } }, svg('alert'), t1 + ' to fix'));
   if (t2) out.push(el('button', { class: 'schip t2', type: 'button', id: 'chip-t2', onclick: function () { T.fold.checks = true; render(); scrollToId('checks'); } }, svg('alert'), t2 + ' to check'));
+  if (typeof canSeeFund === 'function' && canSeeFund()) { var fd = recurDue(view(), todayPk()).filter(function (x) { return x.status !== 'coming'; }).length; if (fd) out.push(el('button', { class: 'schip ' + (isKeeperPhone() ? 't2' : 't3'), type: 'button', id: 'chip-funddue', onclick: function () { go('fund'); } }, svg('clock'), fd + ' due for ' + fundCfg(T.S.data).who)); }
   if (waiting) out.push(el('button', { class: 'schip t3', type: 'button', id: 'chip-wait', onclick: function () { sync(); } }, svg('wait'), waiting + ' waiting to send'));
   return out.length ? el('div', { class: 'strip', id: 'strip' }, out) : null;
 }
@@ -581,7 +587,7 @@ function entryText(tab, r) {
       chip: String(r.taken_from).toLowerCase() === 'fund' ? ['wait', 'From fund'] : r.charged !== 'Y' ? ['due', 'Not charged'] : String(r.taken_from).toLowerCase().indexOf(tw) === 0 ? ['wait', 'From ' + r.taken_from] : null };
   }
   if (tab === 'PAYMENTS' && isSpend(r)) { var se = extraOf(r); return { t: r.heir + ': ' + (se.spent || 'Spent') + (se.item ? ', ' + se.item : ''), s: ['Spent for ' + r.heir, se.vendor ? 'paid to ' + se.vendor : '', fmtDate(r.date), se.mode].filter(Boolean).join(' · '), chip: ['wait', 'Spent for'] }; }
-  if (tab === 'PAYMENTS') return { t: r.heir + ': ' + r.type, s: [r.batch, fmtDate(r.date), extraOf(r).mode, r.cash === 'Y' ? 'cash' : 'not cash'].filter(Boolean).join(' · ') };
+  if (tab === 'PAYMENTS') return { t: r.heir + ': ' + r.type, s: [r.batch, fmtDate(r.date), extraOf(r).mode, r.cash === 'Y' ? 'cash' : 'not cash'].filter(Boolean).join(' · '), chip: extraOf(r).via ? ['wait', 'To ' + extraOf(r).via] : null };
   if (tab === 'TBZ') return { t: 'TBZ ' + fmtMonth(r.month), s: r.auto ? 'Counted automatically at the rate on file' : [r.received === 'Y' ? 'Received' : 'Not received', Number(r.expenses) ? 'expenses ' + groupNum_(r.expenses) : '', r.note].filter(Boolean).join(' · '),
     chip: r.auto ? ['wait', 'Auto'] : r.received === 'Y' ? null : ['due', 'Not received'] };
   if (tab === 'FUND_IN') return { t: 'Back to fund: ' + r.from_whom, s: fmtDate(r.date) };
@@ -606,7 +612,7 @@ function fieldText(tab, k, v) {
 }
 function openEntry(tab, r) {
   if (tab === 'TBZ' && r.auto) { if (isCust() && !curClosed()) openTbzMonth(r.month); return; }
-  var D = view(), closed = closedYears(D).indexOf(r.fy) >= 0, group = extraOf(r).qurbani || '';
+  var D = view(), closed = closedYears(D).indexOf(r.fy) >= 0, group = extraOf(r).qurbani || '', canEdit = canEditTab(tab);
   var groupRows = group ? ['INCOME', 'PAYMENTS'].reduce(function (a, t) { return a.concat(D.tables[t].filter(function (x) { return extraOf(x).qurbani === group; }).map(function (x) { return { tab: t, r: x }; })); }, []) : [];
   sheetOpen(function () {
     var reason;
@@ -621,10 +627,10 @@ function openEntry(tab, r) {
       photoStrip(tab, r, closed),
       closed ? closedNote(r.fy) : null,
       group ? el('div', { class: 'note', id: 'groupnote', text: 'Part of one Qurbani (' + groupRows.length + ' entries' + (extraOf(r).direct ? ', paid directly from ' + (r.source || 'income') : '') + '). Deleting removes all of them.' }) : null,
-      isCust() && !closed ? el('div', { class: 'actions2' },
-        group ? el('span') : btn('primary', 'edit', 'Edit', function () { if (tab === 'PAYMENTS' && isSpend(r)) openSpend(r.heir, r); else openForm(tab, r); }, 'editbtn'),
+      canEdit && !closed ? el('div', { class: 'actions2' },
+        group ? el('span') : btn('primary', 'edit', 'Edit', function () { if (tab === 'PAYMENTS' && isSpend(r)) openSpend(r.heir, r); else if (tab === 'AF_EXP') openFundExp(r); else if (tab === 'AF_IN') { T.sheet = null; render(); openFundIn(r); } else openForm(tab, r); }, 'editbtn'),
         btn('danger', 'trash', 'Delete', function () { document.getElementById('delbox').classList.remove('hidden'); reason.focus(); }, 'delbtn')) : null,
-      isCust() && !closed ? el('div', { id: 'delbox', class: 'hidden' },
+      canEdit && !closed ? el('div', { id: 'delbox', class: 'hidden' },
         el('label', { class: 'f', for: 'delreason', text: 'Why delete it?' }),
         reason = el('input', { id: 'delreason', placeholder: 'For example: typed twice' }),
         btn('danger wide', 'trash', 'Delete this entry', function () {
@@ -778,7 +784,7 @@ SCREENS.form = function () {
     if (def.t === 'month') return [label, el('input', { id: id, type: 'month', value: f[k] || '', oninput: function (e) {
       f[k] = e.target.value; if (tab === 'TBZ' && !F.rentTyped && f.month) { f.rent = tbzRate(D, f.month) || f.rent; var ri = document.getElementById('f-rent'); if (ri) { ri.value = f.rent; ri.dispatchEvent(new Event('input')); } }
     } })];
-    if (def.t === 'heir') return [label, chips(heirs, f[k], function (x) { f[k] = x; }, id)];
+    if (def.t === 'heir') return [label, chips(heirs, f[k], function (x) { f[k] = x; var vr = document.getElementById('viarow'); if (vr) vr.classList.toggle('hidden', x !== fundCfg(D).who); }, id), k === 'heir' ? viaRow : null];
     if (def.t.indexOf('list:') === 0) {
       var vals = listOf(D, def.t.slice(5)).filter(function (v) { return v !== SPEND_TYPE; }); if (f[k] && vals.indexOf(f[k]) < 0) vals = vals.concat([f[k]]);
       return [label, chips(vals, f[k], function (x) { f[k] = x; if (k === 'type') { f.cash = x === 'Adjustment' ? 'N' : 'Y'; drawCashHint(); } }, id)];
@@ -818,6 +824,13 @@ SCREENS.form = function () {
     fundHint.classList.toggle('hidden', tf !== 'fund'); tbzHint.classList.toggle('hidden', tf.indexOf(tw) !== 0);
   }
   drawCashHint();
+  var fc = fundCfg(D), viaRow = null;
+  if (tab === 'PAYMENTS' && fc.who && fc.keeper) {
+    if (F.via === undefined) F.via = !!extraOf(F.orig || f).via;
+    viaRow = el('label', { class: 'switch' + (f.heir === fc.who ? '' : ' hidden'), for: 'f-via', id: 'viarow' },
+      el('span', null, 'Given to ' + fc.keeper + ' for ' + fc.who, qm('Given to ' + fc.keeper + ' for ' + fc.who)),
+      el('input', { id: 'f-via', type: 'checkbox', checked: F.via, onchange: function (e) { F.via = e.target.checked; } }));
+  }
   var layout = FORM_LAYOUT[tab].slice(); if (tab === 'TBZ' && Number(f.expenses)) layout.splice(2, 0, 'expenses');
   var body = layout.map(function (k) { var x = fieldEl(k); if (k === 'type') return [x, cashHint]; if (k === 'charged') return [fundHint, tbzHint, x]; return x; });
   setTimeout(drawFundHint, 0);
@@ -833,6 +846,7 @@ SCREENS.form = function () {
     if (tab === 'OPENING') rec.fy = F.f.fy || curFy();
     var ex = extraOf(F.orig || f), vf = VFIELDS[tab] || {};
     Object.keys(vf).forEach(function (k) { var v = String(f[k] || '').trim(); if (v) ex[vf[k].key] = v; else delete ex[vf[k].key]; });
+    if (tab === 'PAYMENTS') { var fc2 = fundCfg(D); if (fc2.keeper && rec.heir === fc2.who && F.via) ex.via = fc2.keeper; else delete ex.via; }
     if (Object.keys(ex).length) rec.extra = JSON.stringify(ex);
     if (tab === 'PAYMENTS' || tab === 'INCOME') addModeIfNew(D, tab === 'PAYMENTS' ? f.pay_mode : f.mode);
     if (F.orig && F.orig.id) rec.id = F.orig.id;
@@ -1051,8 +1065,8 @@ function photoStrip(tab, r, closed) {
   var input = el('input', { type: 'file', accept: 'image/*', multiple: true, class: 'hidden', id: 'photoinput', onchange: function (e) {
     addPhotos(tab, ref, e.target.files).then(function (n) { if (n) { saveState(); toast(n + ' photo' + (n > 1 ? 's' : '') + ' added.', true); var cur = T.sheet; T.sheet = null; render(); T.sheet = cur; render(); sync(true); } });
   } });
-  if (!files.length && (!isCust() || closed)) return null;
-  return el('div', null, el('label', { class: 'f', text: 'Photos' }), strip, isCust() && !closed ? [input, btn('wide', 'camera', 'Add photo', function () { input.click(); }, 'addphoto2')] : null);
+  if (!files.length && (!canEditTab(tab) || closed)) return null;
+  return el('div', null, el('label', { class: 'f', text: 'Photos' }), strip, canEditTab(tab) && !closed ? [input, btn('wide', 'camera', 'Add photo', function () { input.click(); }, 'addphoto2')] : null);
 }
 function openViewer(src) {
   var v = el('div', { class: 'viewer', id: 'viewer' }, el('img', { src: src, alt: 'Photo' }), btn('primary', 'x', 'Close', function () { v.remove(); updateScrollLock(); }, 'closeviewer'));
@@ -1298,7 +1312,21 @@ function glossaryTerms(D) {
     ['Using the app', 'Same amount warning', 'Shown when an entry has the same date, amount and payee as one already there. Save anyway if it is genuine.'],
     ['Using the app', 'Audit trail', 'The workbook keeps every change with who, when, the old and the new value. Deleted entries are kept with the reason.'],
     ['Using the app', 'View only', 'Heirs can see everything and download the summary, but only ' + c + ' can make entries.']
-  ].map(function (x) { return { g: x[0], t: x[1], d: x[2] }; });
+  ].concat(fundOn(D) ? (function () {
+    var fc = fundCfg(D), g = fc.who + '\u2019s account', k = fc.keeper, w = fc.who;
+    return [
+      [g, g, 'Money given to ' + k + ' for ' + w + ', which ' + k + ' keeps and spends for her. Only ' + k + '\u2019s phone makes entries; ' + c + ' can view it; the other heirs do not see it. It is separate from the ledger, so nothing is counted twice.'],
+      [g, 'Given to ' + k + ' for ' + w, 'A switch on a payment to ' + w + '. The payment counts once as ' + w + '\u2019s received in the ledger, as usual, and the money is added to her account kept by ' + k + '.'],
+      [g, 'Other money in', 'Money ' + k + ' receives for ' + w + ' from elsewhere, such as a pension, rent or profit on savings. Entered by ' + k + '; it adds to her account only, not to the ledger.'],
+      [g, 'Should be left', 'Everything given to ' + k + ' for ' + w + ' plus other money in, less everything he has spent for her. What he ought to still hold for her.'],
+      [g, 'Money held (actual)', 'What ' + k + ' really holds for ' + w + ' in cash and bank, typed in by him. The difference from "Should be left" points to an expense or a payment not yet entered.'],
+      [g, 'Account expense', 'Something ' + k + ' paid for ' + w + ' from her money: what it was for, details, who was paid, amount, cash or bank, and a receipt photo if there is one.'],
+      [g, 'Repeating charge', 'A charge that comes every month, such as electricity, groceries or kaam wali wages. ' + k + ' sets it once with its usual amount and the day it is due.'],
+      [g, 'Due and skip', 'A repeating charge shows as due from its day each month until it is marked Paid (amount can be changed) or Skipped for that month. Unpaid from last month shows as overdue.'],
+      [g, 'Account statement', 'A PDF of ' + w + '\u2019s account for this month, last month, this year or all time: balance at the start, money given, each expense, spending by what for, and the balance at the end.'],
+      [g, 'Account keeper', 'The heir who keeps the account, set under Settings > Amounts and roles. Only that heir\u2019s phone can enter its expenses.']
+    ];
+  })() : []).map(function (x) { return { g: x[0], t: x[1], d: x[2] }; });
 }
 function glossaryList(D, q) {
   var terms = glossaryTerms(D), qq = String(q || '').trim().toLowerCase();
@@ -1361,7 +1389,7 @@ SCREENS.settings = function () {
             }) : null,
             btn('danger small', 'trash', 'Remove', function () { S.outbox = S.outbox.filter(function (x) { return x !== o; }); S.uploads = S.uploads.filter(function (x) { return x !== o; }); saveState().then(render); })));
       })) : null,
-    cust ? null : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' }),
+    cust ? null : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' + (isKeeperPhone() ? ' You keep ' + fundTitle(D) + ': enter its expenses on the ' + fundCfg(D).who + ' tab.' : '') }),
     el('div', { class: 'tiles three', id: 'setgroups' }, SET_GROUPS.filter(function (g) { return cust || !g.cust; }).map(function (g) {
       var info = setGroupInfo(g.k, D);
       return el('button', { class: 'tile' + (info.bad ? ' bad' : ''), type: 'button', id: 'grp-' + g.k, title: info.sub, onclick: function () { T.setGroup = g.k; T.slide = true; render(); window.scrollTo(0, 0); } },
@@ -1414,12 +1442,12 @@ var SET_PAGES = {
     ];
   },
   amounts: function (D, set) {
-    return [el('div', { class: 'card list' }, [['fixed_amount', (set.fixed_name || 'Fixed lease') + ', fixed yearly amount', true], ['custodian', 'Custodian (collects and pays)'], ['tbz_collector', (set.tbz_name || 'Monthly rent') + ' collected and kept by']].map(function (x) {
+    return [el('div', { class: 'card list' }, [['fixed_amount', (set.fixed_name || 'Fixed lease') + ', fixed yearly amount', true], ['custodian', 'Custodian (collects and pays)'], ['tbz_collector', (set.tbz_name || 'Monthly rent') + ' collected and kept by'], ['fund_for', 'Account kept for (heir)'], ['fund_keeper', 'Account kept by (heir)']].map(function (x) {
       var cur = settingRow(D, x[0]);
       return el('button', { class: 'row', type: 'button', id: 'set-' + x[0], onclick: function () {
         editSheet(x[1], [{ k: 'v', label: x[1], num: x[2], value: cur ? cur.value : '' }], function (v) {
           if (x[2] && !/^\d+$/.test(v.v)) return 'Whole rupees only.';
-          if (!x[2] && heirsOf(view()).map(function (h) { return h.name; }).indexOf(v.v) < 0) return 'Use one of the heirs\' names.';
+          if (!x[2] && !(v.v === '' && /^fund_/.test(x[0])) && heirsOf(view()).map(function (h) { return h.name; }).indexOf(v.v) < 0) return 'Use one of the heirs\' names' + (/^fund_/.test(x[0]) ? ' (or leave it blank to switch the account off).' : '.');
           saveSetting(x[0], v.v); return '';
         });
       } }, el('div', { class: 'grow', text: x[1] }), el('div', { class: 'amt', text: cur ? (x[2] ? groupNum_(cur.value) : cur.value) : '' }), el('span', { class: 'chev' }, svg('next')));
@@ -1548,7 +1576,7 @@ function checkUpdate() {
 function safeToReload() {
   var ae = document.activeElement;
   if (T.syncing || T.bioBusy || T.sheet) return false;
-  if (['form', 'qurbani', 'spend', 'setpin', 'join', 'loading'].indexOf(T.screen) >= 0) return false;
+  if (['form', 'qurbani', 'spend', 'fundexp', 'setpin', 'join', 'loading'].indexOf(T.screen) >= 0) return false;
   if (ae && ae.matches && ae.matches('input, textarea, select')) return false;
   if (document.querySelector('.viewer')) return false;
   return true;
@@ -1600,7 +1628,7 @@ function updateApp() {
 function touch() { T.idleAt = Date.now(); }
 ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, touch, true); });
 var _go = go;
-go = function (s) { var F = ['form', 'qurbani', 'spend']; if (F.indexOf(s) >= 0 && F.indexOf(T.screen) < 0) T.prevScreen = T.screen; return _go(s); };
+go = function (s) { var F = ['form', 'qurbani', 'spend', 'fundexp']; if (F.indexOf(s) >= 0 && F.indexOf(T.screen) < 0) T.prevScreen = T.screen; return _go(s); };
 setInterval(function () { if (T.key && Date.now() - T.idleAt > IDLE_MS) lock(); }, 15000);
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible') { if (T.key && Date.now() - T.idleAt > IDLE_MS) lock(); else if (T.S) sync(true); }
@@ -1617,9 +1645,11 @@ if (swOk()) {
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkUpdate(); });
   document.addEventListener('focusout', function () { if (T.reloadPending) setTimeout(function () { if (T.reloadPending) applyUpdate(); }, 300); });
 }
-(function boot() {
+// Start only once every script on the page (including fund.js) has loaded.
+function boot() {
   var st = stored();
   if (st && !st.ct) { localStorage.removeItem(STORE); st = null; }
   T.screen = st ? 'unlock' : 'join';
   resumeAfterUpdate().then(function (done) { if (!done) render(); });
-})();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else setTimeout(boot, 0);

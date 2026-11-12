@@ -198,6 +198,7 @@ function xlsxLedger(D, R) {
   })), [44, 18]) }];
   [['INCOME', 'Income'], ['OUTFLOWS', 'Outflows'], ['PAYMENTS', 'Payments'], ['TBZ', 'TBZ'], ['FUND_IN', 'Back to fund'], ['OPENING', 'Opening'], ['HEIRS', 'Heirs'], ['TBZ_RATES', 'TBZ rates']]
     .forEach(function (x) { sheets.push({ name: x[1], xml: tabSheet(D, x[0]) }); });
+  [['AF_EXP', 'Account expenses'], ['AF_IN', 'Account other money in'], ['AF_RECUR', 'Repeating charges'], ['AF_HELD', 'Money held']].forEach(function (x) { if ((D.tables[x[0]] || []).length) sheets.push({ name: x[1], xml: tabSheet(D, x[0]) }); });
   var files = [
     { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
       sheets.map(function (s, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') + '</Types>' },
@@ -213,4 +214,64 @@ function xlsxLedger(D, R) {
       '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' }
   ].concat(sheets.map(function (s, i) { return { name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: s.xml }; }));
   return zipStore(files);
+}
+
+// A plain A4 document with the same look as the summary: title band, sections, label and amount lines. Used for statements.
+function pdfDoc(title, subtitle, build) {
+  var NAVY = '0.039 0.165 0.431', GOLD = '0.788 0.604 0.231', GREY = '0.33 0.36 0.42';
+  var pages = [], cur = null, y = 0;
+  function text(x, yy, size, bold, s, rgb) { cur.push('BT ' + (rgb || '0.08 0.11 0.17') + ' rg /' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf ' + x.toFixed(2) + ' ' + yy.toFixed(2) + ' Td (' + pdfEsc(s) + ') Tj ET'); }
+  function rtext(xr, yy, size, bold, s, rgb) { text(xr - pdfW(s, size, bold), yy, size, bold, s, rgb); }
+  function page(first) {
+    cur = []; pages.push(cur);
+    if (first) {
+      cur.push('q ' + NAVY + ' rg 0 762 595 80 re f Q', 'q ' + GOLD + ' rg 0 758 595 4 re f Q');
+      if (LOGO_JPG) cur.push('q 56 0 0 56 28 774 cm /Im1 Do Q');
+      text(LOGO_JPG ? 96 : 32, 808, 19, true, title, '1 1 1');
+      text(LOGO_JPG ? 96 : 32, 789, 10.5, false, subtitle, '1 1 1');
+      rtext(567, 808, 9, false, 'Made ' + fmtDate(todayPk()), '1 1 1');
+      y = 734;
+    } else {
+      cur.push('q ' + NAVY + ' rg 0 812 595 30 re f Q');
+      text(32, 822, 10, true, title + ' (continued)', '1 1 1');
+      y = 790;
+    }
+  }
+  function need(h) { if (y - h < 50) page(false); }
+  function fit(s, size, bold, width) { if (pdfW(s, size, bold) <= width) return s; while (s.length > 1 && pdfW(s + '...', size, bold) > width) s = s.slice(0, -1); return s + '...'; }
+  var d = {
+    section: function (t) { need(46); y -= 7; text(40, y, 12.5, true, t, NAVY); y -= 5; cur.push('q ' + GOLD + ' rg 40 ' + y.toFixed(2) + ' 515 1.2 re f Q'); y -= 14; },
+    kv: function (l, v, bold) { need(16); text(40, y, 10, !!bold, fit(l, 10, !!bold, 420)); rtext(555, y, 10, !!bold, String(v)); y -= 13.6; },
+    line: function (s) { need(14); text(40, y, 9.5, false, fit(s, 9.5, false, 515), GREY); y -= 13.5; }
+  };
+  page(true);
+  build(d);
+  var parts = [], off = [], pos = 0;
+  function add(bytes) { parts.push(bytes); pos += bytes.length; }
+  function obj(n, body, stream) {
+    off[n] = pos;
+    add(bytesOf(n + ' 0 obj\n' + body + (stream ? '\nstream\n' : '\nendobj\n')));
+    if (stream) { add(stream); add(bytesOf('\nendstream\nendobj\n')); }
+  }
+  add(bytesOf('%PDF-1.4\n%âãÏÓ\n'));
+  var nPages = pages.length, first = 6, kids = [];
+  for (var i = 0; i < nPages; i++) kids.push((first + i * 2) + ' 0 R');
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Count ' + nPages + ' /Kids [' + kids.join(' ') + '] >>');
+  obj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  obj(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  if (LOGO_JPG) obj(5, '<< /Type /XObject /Subtype /Image /Width 240 /Height 240 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + LOGO_JPG.length + ' >>', LOGO_JPG);
+  else obj(5, '<< >>');
+  pages.forEach(function (p, i) {
+    var content = bytesOf(p.join('\n'));
+    obj(first + i * 2, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>' +
+      (LOGO_JPG ? ' /XObject << /Im1 5 0 R >>' : '') + ' >> /Contents ' + (first + i * 2 + 1) + ' 0 R >>');
+    obj(first + i * 2 + 1, '<< /Length ' + content.length + ' >>', content);
+  });
+  var total = first + nPages * 2, xref = pos, x = 'xref\n0 ' + total + '\n0000000000 65535 f \n';
+  for (var n = 1; n < total; n++) x += ('0000000000' + off[n]).slice(-10) + ' 00000 n \n';
+  add(bytesOf(x + 'trailer\n<< /Size ' + total + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n'));
+  var outB = new Uint8Array(pos), at = 0;
+  parts.forEach(function (b) { outB.set(b, at); at += b.length; });
+  return outB;
 }
