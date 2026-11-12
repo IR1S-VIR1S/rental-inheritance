@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'bf098d9a';
+var BUILD_ID = 'ea8e7689';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -1311,6 +1311,7 @@ function glossaryTerms(D) {
     ['Using the app', 'Not accepted', 'The workbook refused an entry and says why. Fix it or remove it under Settings.'],
     ['Using the app', 'Same amount warning', 'Shown when an entry has the same date, amount and payee as one already there. Save anyway if it is genuine.'],
     ['Using the app', 'Audit trail', 'The workbook keeps every change with who, when, the old and the new value. Deleted entries are kept with the reason.'],
+    ['Using the app', 'Invitation', 'A one-time message that lets a person set up the app on their phone. ' + c + ' makes it under Settings > People (or from the Sheet menu) and sends it by WhatsApp. It works for 7 days, for that person only; after first use it works again for 24 hours so the Home Screen copy can join, then never.'],
     ['Using the app', 'View only', 'Heirs can see everything and download the summary, but only ' + c + ' can make entries.']
   ].concat(fundOn(D) ? (function () {
     var fc = fundCfg(D), g = fc.who + '\u2019s account', k = fc.keeper, w = fc.who;
@@ -1343,7 +1344,7 @@ function glossaryList(D, q) {
 // Settings: a short list of groups; each opens its own page with a Back button. "Not accepted" stays pinned on top.
 var SET_GROUPS = [
   { k: 'year', icon: 'cal', cust: true }, { k: 'heirs', icon: 'users', cust: true }, { k: 'amounts', icon: 'gear', cust: true },
-  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'glossary', icon: 'book' }
+  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'people', icon: 'users', cust: true }, { k: 'glossary', icon: 'book' }
 ];
 function setGroupInfo(k, D) {
   var fy = curFy(), set = settingsOf(D), closed = closedYears(D).indexOf(fy) >= 0;
@@ -1360,6 +1361,7 @@ function setGroupInfo(k, D) {
     var last = D.tables.TBZ_RATES.slice().sort(function (a, b) { return a.from_month < b.from_month ? 1 : -1; })[0];
     return { title: (set.tbz_name || 'Monthly rent') + ' rates', short: 'Rent rates', tag: last ? groupNum_(Number(last.rent)) : 'None', sub: last ? groupNum_(Number(last.rent)) + ' from ' + fmtMonth(last.from_month) : 'No rate yet' };
   }
+  if (k === 'people') return { title: 'People and invitations', short: 'People', tag: T.people ? T.people.length + ' joined' : 'Invite', sub: 'Invite an heir with a ready WhatsApp message, and see who has joined' };
   if (k === 'glossary') return { title: 'Glossary', short: 'Glossary', tag: glossaryTerms(D).length + ' terms', sub: 'What each word in the app means' };
   if (k === 'lists') return { title: 'Lists', short: 'Lists', tag: 'Tags', sub: 'Sources, categories, banks and accounts' };
   return { title: 'This phone', short: 'This phone', tag: bioReady() ? 'Face ID' : 'PIN', sub: (bioReady() ? 'Face ID on' : 'PIN only') + ' · app ' + BUILD_ID };
@@ -1399,6 +1401,55 @@ SCREENS.settings = function () {
     SET_PAGES.phone());
 };
 var SET_PAGES = {
+  people: function (D, set) {
+    var nameIn, err = el('div', { class: 'err', id: 'inverr' }), cust = set.custodian || '';
+    if (!T.peopleLoading && T.peopleFor !== T.S.token) {
+      T.peopleLoading = true;
+      setTimeout(function () {
+        api({ op: 'people', token: T.S.token }).then(function (r) {
+          T.peopleLoading = false; T.peopleFor = T.S.token;
+          if (r.ok) T.people = r.people; else T.peopleErr = r.error === 'unknown operation' ? 'Install update in the Sheet first (version 1.2).' : r.error;
+          if (T.screen === 'settings' && T.setGroup === 'people') softRender();
+        }).catch(function () { T.peopleLoading = false; T.peopleErr = 'No signal. Connect to see who has joined.'; if (T.setGroup === 'people') softRender(); });
+      }, 0);
+    }
+    function make() {
+      var name = (nameIn.value || '').trim();
+      if (!name) { err.textContent = 'Choose or type a name.'; return; }
+      if (!navigator.onLine) { err.textContent = 'Invitations need signal, because the workbook makes them.'; return; }
+      err.textContent = 'Making the invitation';
+      api({ op: 'invite', token: T.S.token, name: name }).then(function (r) {
+        if (!r.ok) { err.textContent = r.error === 'unknown operation' ? 'The workbook script is older than this app. In the Sheet use Rental Inheritance > Install update (version 1.2).' : r.error; return; }
+        T.invite = { name: r.name, text: r.text }; T.peopleFor = ''; render();
+        var c = document.getElementById('invcard'); if (c) c.scrollIntoView({ block: 'start' });
+      }).catch(function () { err.textContent = 'Could not reach the workbook. Try again.'; });
+    }
+    var inv = T.invite;
+    return [
+      el('p', { class: 'muted' }, 'Invite an heir to view the ledger. The app makes the invitation and a message with the steps to send.', qm('Invitation')),
+      el('div', { class: 'card' },
+        el('label', { class: 'f', for: 'inv-name', text: 'Who to invite' }),
+        chips(heirsOf(D).map(function (h) { return h.name; }).filter(function (n) { return n !== cust; }), '', function (x) { nameIn.value = x; }, 'inv-chips'),
+        nameIn = el('input', { id: 'inv-name', autocomplete: 'off', placeholder: 'Or type a name' }),
+        el('p', { class: 'hint', text: 'View only. ' + (set.fund_keeper ? set.fund_keeper + ' also gets the ' + (set.fund_for || '') + ' tab to keep that account.' : '') }),
+        btn('primary wide', 'share', 'Make invitation', make, 'invmake'), err),
+      inv ? el('div', { class: 'card', id: 'invcard' },
+        el('b', { text: 'Invitation for ' + inv.name }),
+        el('div', { class: 'invtext', id: 'invtext', text: inv.text }),
+        el('div', { class: 'actions3' },
+          el('a', { class: 'btn primary', id: 'invwa', href: 'https://wa.me/?text=' + encodeURIComponent(inv.text), target: '_blank', rel: 'noopener' }, svg('share'), el('span', { text: 'WhatsApp' })),
+          btn('', 'share', 'Share', function () { if (navigator.share) navigator.share({ text: inv.text }).catch(function () { }); else toast('Use WhatsApp or Copy.'); }, 'invshare'),
+          btn('', 'copy', 'Copy', function () { navigator.clipboard.writeText(inv.text).then(function () { toast('Copied. Paste it into WhatsApp.', true); }, function () { toast('Could not copy. Press and hold the message.'); }); }, 'invcopy')),
+        el('p', { class: 'hint', text: 'Works for 7 days, for that person only. Send it to them directly.' }),
+        btn('wide', 'x', 'Done', function () { T.invite = null; render(); }, 'invdone')) : null,
+      el('h2', null, svg('users'), 'Who has joined'),
+      el('div', { class: 'card list', id: 'peoplelist' }, T.people ? T.people.map(function (p) {
+        return el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: p.name }),
+          el('div', { class: 'sm', text: (p.role === 'custodian' ? 'Custodian' : p.keeper ? 'View only, keeps ' + (set.fund_for || 'the account') : 'View only') + (p.seen ? ' \u00b7 last synced ' + fmtDate(p.seen) : '') })));
+      }) : el('p', { class: 'muted', text: T.peopleErr || 'Loading' })),
+      el('p', { class: 'hint', text: 'To remove someone, use Rental Inheritance > Remove a person in the Sheet.' })
+    ];
+  },
   glossary: function (D) {
     return [el('input', { id: 'glosssearch', type: 'search', placeholder: 'Search a word, like minus or pending', autocomplete: 'off', value: T.gq || '',
       oninput: function (e) { T.gq = e.target.value; var l = document.getElementById('glosslist'); if (l) l.replaceWith(glossaryList(view(), T.gq)); } }), glossaryList(D, T.gq)];

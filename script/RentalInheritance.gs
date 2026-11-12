@@ -5,8 +5,9 @@
  * and sends the ledger to the phones. Every calculation lives in the phone app.
  * Pure ASCII only (the update code is a SHA-256 of this file).
  */
-var VERSION = '1.1';
-var RELEASE_NOTE = '1.1: an heir\'s account kept by another heir (expenses, other money in, repeating charges, money held). The keeper\'s phone can write only those three tabs; the custodian can view them; other heirs never receive them. Adds tabs AF_EXP, AF_IN, AF_RECUR, AF_HELD and settings fund_for and fund_keeper. Nothing removed. ' +
+var VERSION = '1.2';
+var RELEASE_NOTE = '1.2: invitations made from the custodian\'s phone (Settings > People) with a ready message of instructions to send by WhatsApp; the Sheet menu shows the same message; the custodian\'s phone lists who has joined. Nothing removed. ' +
+  '1.1: an heir\'s account kept by another heir (expenses, other money in, repeating charges, money held). The keeper\'s phone can write only those three tabs; the custodian can view them; other heirs never receive them. Adds tabs AF_EXP, AF_IN, AF_RECUR, AF_HELD and settings fund_for and fund_keeper. Nothing removed. ' +
   '1.0: first version. Ledger tabs for income, outflows, payments to heirs, TBZ months, money back to fund and opening balances; ' +
   'lists and rates kept as rows; custodian phone enters, heirs view; invitations; receipt photos in Drive; audit trail with a check; 2025-26 brought in as a closed year.';
 
@@ -153,6 +154,20 @@ function checkField_(F, v, ctx, oldV) {
     return L.indexOf(s) >= 0 || s === oldV ? '' : 'not on the list. Add it in Settings first.';
   }
   return '';
+}
+// The invitation message sent by WhatsApp (same text from the phone and from the Sheet menu). Plain ASCII.
+function inviteText_(name, link, line, opts) {
+  opts = opts || {};
+  var t = 'Assalam o alaikum ' + name + ',\n\n';
+  t += opts.custodian ? 'This sets up the Rental Inheritance app on your phone, so you can enter the ledger.\n\n'
+    : 'You are invited to the family Rental Inheritance app. You can see the full ledger and download the summary; you cannot change it.\n\n';
+  if (opts.keeper) t += 'You also keep ' + opts.keeper + '\'s account: the app will show a ' + opts.keeper + ' tab where you enter what you receive and spend for ' + opts.keeper + '.\n\n';
+  t += 'On iPhone:\n1. Open this link in Safari: ' + link + '\n2. Tap "Copy invitation".\n3. Tap the Share button, then "Add to Home Screen".\n' +
+    '4. Open "Inheritance" from your Home Screen and tap "Paste invitation".\n5. Choose a PIN of 4 to 6 digits. Face ID can be switched on later under Settings.\n\n' +
+    'On Android: open the link in Chrome, tap Join, then choose a PIN. Install it from the Chrome menu if you like.\n\n' +
+    'If the app asks for an invitation, copy this line and tap "Paste invitation":\n' + line + '\n\n' +
+    'The invitation works for 7 days and only for you. Please do not forward it. If you forget your PIN, ask for a new invitation.';
+  return t;
 }
 //== SHARED END
 
@@ -403,16 +418,24 @@ function changeWebAppUrl() {
   var ui = SpreadsheetApp.getUi();
   if (webAppUrl_(ui, true)) ui.alert('Saved. Phones keep working only if the address did not change; otherwise invite them again.');
 }
-function makeInvite_(name, role) {
-  var url = webAppUrl_(SpreadsheetApp.getUi(), false);
+function makeInvite_(name, role, byWho) {
+  var url = byWho ? webAppUrlNoUi_() : webAppUrl_(SpreadsheetApp.getUi(), false);
   if (!url) return null;
   var code = rand_(14).toUpperCase();
   PropertiesService.getScriptProperties().setProperty('APPJOIN_' + sha_(code),
     JSON.stringify({ exp: Date.now() + 7 * 864e5, name: name, role: role, first: 0, tok: '' }));
   log_('invitation made', name + ' (' + role + ')');
-  audit_([{ who: me_(), role: 'owner', action: 'invite', tab: 'ACCESS', id: name, field: 'role', old: '', new: role }]);
+  audit_([{ who: byWho ? byWho.name : me_(), role: byWho ? byWho.role : 'owner', action: 'invite', tab: 'ACCESS', id: name, field: 'role', old: '', new: role }]);
   var line = 'RI1.' + Utilities.base64EncodeWebSafe(url).replace(/=+$/, '') + '.' + code;
-  return { line: line, link: PAGES_URL + '#join=' + line };
+  var link = PAGES_URL + '#join=' + line, set = settings_();
+  var keeper = String(set.fund_keeper || '').trim().toLowerCase() === String(name).trim().toLowerCase() && set.fund_for ? String(set.fund_for) : '';
+  return { line: line, link: link, text: inviteText_(name, link, line, { custodian: role === 'custodian', keeper: keeper }) };
+}
+function webAppUrlNoUi_() {
+  var p = PropertiesService.getScriptProperties(), saved = p.getProperty('WEBAPP_URL');
+  if (saved) return saved;
+  var auto = ''; try { auto = ScriptApp.getService().getUrl() || ''; } catch (e) { }
+  return EXEC_RE.test(auto) ? auto : '';
 }
 function me_() { try { return Session.getEffectiveUser().getEmail() || 'owner'; } catch (e) { return 'owner'; } }
 function isOwner_() {
@@ -428,8 +451,10 @@ function showInvite_(inv, name, role) {
     '<textarea readonly style="width:100%;height:70px" onclick="this.select()">' + inv.link + '</textarea>' +
     '<p>2. Open the app from the Home Screen. If it asks for an invitation, copy this line and tap "Paste invitation":</p>' +
     '<textarea readonly style="width:100%;height:60px" onclick="this.select()">' + inv.line + '</textarea>' +
-    '<p>Valid for 7 days. After first use it works again for 24 hours (for the Home Screen copy), then never.</p></div>')
-    .setWidth(460).setHeight(400);
+    '<p>Valid for 7 days. After first use it works again for 24 hours (for the Home Screen copy), then never.</p>' +
+    '<p><b>Or send this ready message</b> (instructions included):</p>' +
+    '<textarea readonly style="width:100%;height:150px" onclick="this.select()">' + String(inv.text).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</textarea></div>')
+    .setWidth(480).setHeight(560);
   ui.showModalDialog(html, 'Invitation');
 }
 function inviteCustodian() {
@@ -506,6 +531,8 @@ function api_(b) {
   var keeper = who.role !== 'custodian' && isKeeper_(who);
   if (who.role !== 'custodian' && !keeper) return { ok: false, code: 403, error: 'This phone can view only.' };
   if (b.op === 'push') return push_(b.items || [], who, keeper);
+  if (b.op === 'invite' && !keeper) return apiInvite_(b, who);
+  if (b.op === 'people' && !keeper) return { ok: true, people: people_() };
   if (b.op === 'upload') return upload_(b, who, keeper);
   if (keeper) return { ok: false, code: 403, error: 'This phone can enter only the account it keeps.' };
   if (b.op === 'snapshot') return snapshot_(b);
@@ -667,6 +694,26 @@ function getFile_(b, who) {
   if (AF_TABS.indexOf(String(f.tab)) >= 0 && who && who.role !== 'custodian' && !isKeeper_(who)) return { ok: false, code: 403, error: 'Photo not found.' };
   var blob = DriveApp.getFileById(f.drive_id).getBlob();
   return { ok: true, mime: f.mime, b64: Utilities.base64Encode(blob.getBytes()) };
+}
+
+// Invitation made from the custodian's phone. View-only, for anyone the custodian names.
+function apiInvite_(b, who) {
+  var name = String(b.name || '').trim().slice(0, 40);
+  if (!name) return { ok: false, error: 'Type a name.' };
+  if (name.toLowerCase() === String(who.name || '').toLowerCase()) return { ok: false, error: 'That is you. Use "Set up my phone" in the Sheet to set up another phone of yours.' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var inv = makeInvite_(name, 'viewer', who);
+    if (!inv) return { ok: false, error: 'The web app address is not saved yet. In the Sheet use "Change web app address" once.' };
+    return { ok: true, name: name, link: inv.link, line: inv.line, text: inv.text };
+  } finally { lock.releaseLock(); }
+}
+// Who has joined (names only; no codes or tokens leave the workbook).
+function people_() {
+  var set = settings_(), k = String(set.fund_keeper || '').trim().toLowerCase();
+  return tokens_().map(function (x) { return { name: x.name, role: x.role, joined: x.at || '', seen: x.seen || '', keeper: x.role !== 'custodian' && !!k && String(x.name).toLowerCase() === k }; })
+    .sort(function (a, b) { return a.name < b.name ? -1 : 1; });
 }
 
 // Everything the loader may call.

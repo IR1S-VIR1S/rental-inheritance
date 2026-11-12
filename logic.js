@@ -144,4 +144,18 @@ function checkField_(F, v, ctx, oldV) {
   }
   return '';
 }
+// The invitation message sent by WhatsApp (same text from the phone and from the Sheet menu). Plain ASCII.
+function inviteText_(name, link, line, opts) {
+  opts = opts || {};
+  var t = 'Assalam o alaikum ' + name + ',\n\n';
+  t += opts.custodian ? 'This sets up the Rental Inheritance app on your phone, so you can enter the ledger.\n\n'
+    : 'You are invited to the family Rental Inheritance app. You can see the full ledger and download the summary; you cannot change it.\n\n';
+  if (opts.keeper) t += 'You also keep ' + opts.keeper + '\'s account: the app will show a ' + opts.keeper + ' tab where you enter what you receive and spend for ' + opts.keeper + '.\n\n';
+  t += 'On iPhone:\n1. Open this link in Safari: ' + link + '\n2. Tap "Copy invitation".\n3. Tap the Share button, then "Add to Home Screen".\n' +
+    '4. Open "Inheritance" from your Home Screen and tap "Paste invitation".\n5. Choose a PIN of 4 to 6 digits. Face ID can be switched on later under Settings.\n\n' +
+    'On Android: open the link in Chrome, tap Join, then choose a PIN. Install it from the Chrome menu if you like.\n\n' +
+    'If the app asks for an invitation, copy this line and tap "Paste invitation":\n' + line + '\n\n' +
+    'The invitation works for 7 days and only for you. Please do not forward it. If you forget your PIN, ask for a new invitation.';
+  return t;
+}
 
