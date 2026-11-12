@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'eba0e606';
+var BUILD_ID = 'e54ba3b6';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -46,6 +46,7 @@ var ICONS = {
   x: 'M18 6L6 18|M6 6l12 12',
   back: 'M15 18l-6-6 6-6',
   next: 'M9 18l6-6-6-6',
+  book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20|M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z|M9 7h7|M9 11h7',
   down: 'M6 9l6 6 6-6',
   trash: 'M3 6h18|M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6|M10 11v6|M14 11v6|M9 6V4h6v2',
   edit: 'M12 20h9|M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
@@ -1091,10 +1092,89 @@ function openCashActual() {
     return '';
   });
 }
+// ---------- Glossary: every term the app uses, worded from the way the app works it out ----------
+function glossaryTerms(D) {
+  var set = settingsOf(D), c = set.custodian || 'the custodian', tb = set.tbz_name || 'Monthly rent', tc = set.tbz_collector || 'the collector';
+  var fx = set.fixed_name || 'Fixed lease', fa = set.fixed_amount ? groupNum_(Number(set.fixed_amount)) : '';
+  return [
+    ['Totals', 'Financial year', 'Runs from 1 July to 30 June, written like 2026-27. Change the year with the year button at the top of each screen.'],
+    ['Totals', 'Gross income to divide', 'All income entered for the year, plus ' + tb + ' rent received. A Qurbani paid directly from income is included too.'],
+    ['Totals', 'Outflow', 'Money paid out of the pool: zakat, charity, help, property costs, loans given.'],
+    ['Totals', 'Charged to the pool', 'An outflow that is taken off before dividing, so everyone bears it by share. "Not charged" outflows are only listed for checking and change nothing.'],
+    ['Totals', 'Net income to divide', 'Gross income less the outflows charged to the pool. Each heir’s share is worked out from this.'],
+    ['Totals', 'Taken from', 'Which money an outflow came out of, for example a ' + fx + ' instalment, ' + tb + ' or the Fund.'],
+    ['Totals', 'Listed but not charged', 'Outflows marked "not charged": shown for checking, not taken off the income. Decide each one: charge it or delete it.'],
+    ['Totals', 'Unexplained', 'A balancing line used when old records do not add up, so the totals match what was actually recorded.'],
+    ['Heirs', 'Share', 'Each heir’s part of the net income, for example 1/3 or 1/6. All shares must add up to 1.'],
+    ['Heirs', 'Entitlement', 'Net income times the heir’s share, rounded to the nearest rupee.'],
+    ['Heirs', 'Opening balance', 'An amount brought into a year. A plus amount is owed to that heir (for example what was still pending last year). Minus means the heir owes the pool. "Cash" means cash in hand at the start of the year.'],
+    ['Heirs', 'Received', 'Everything counted toward an heir’s share: cash paid, Qurbani, adjustments and, for ' + tc + ', the ' + tb + ' rent he keeps.'],
+    ['Heirs', 'Pending', 'Entitlement plus opening balance, less received. Plus = still owed to that heir. Minus = paid more than the share.'],
+    ['Heirs', 'Carry forward', 'Whether pending moves into the next year. "Yes, owed to ..." carries over. "Settled (rounding)" means within 1 rupee. ' + c + '’s own pending is not carried, because he pays everyone else first.'],
+    ['Heirs', 'Overpaid', 'An heir has received more than the share. Shown in red; settle it with a minus adjustment or next year.'],
+    ['Payments', 'Payment to heir', 'Money or value given to an heir, counted toward the share.'],
+    ['Payments', 'Cash (payment type)', 'Money that actually left ' + c + '’s hands. It lowers cash in hand.'],
+    ['Payments', 'Qurbani (payment type)', 'An heir’s part of a Qurbani. Whether it counts as cash depends on who paid (see Qurbani).'],
+    ['Payments', 'Adjustment', 'A correction that counts toward a share but is not cash, for example a tax correction moved from one heir to another, or arrears from an earlier year. It never changes cash in hand.'],
+    ['Payments', 'Minus', 'The switch under an amount that makes it negative. On a payment: taken back from, or credited to, that heir. On an opening balance: the heir owes the pool. On an outflow: a correction that reduces the total.'],
+    ['Payments', 'Not cash', 'Counts toward the share only; no money left ' + c + '’s hands (adjustments, Qurbani paid directly or by another heir).'],
+    ['Payments', 'Batch', 'Optional label to group payments made together, like "Payment 1".'],
+    ['Payments', 'Paid by (cash or bank)', 'Which bank or account a payment or receipt went through, for example ABL or Meezan Bank. A label only: it does not change any total.'],
+    ['Cash', 'Custodian', c + ' collects the income (except ' + tb + ') and pays everyone. Only his phone can make entries.'],
+    ['Cash', 'Opening (carried from last year)', 'Cash ' + c + ' should have held at the start of the year: last year\u2019s "Should be in hand", or a "Cash" opening balance if one was entered.'],
+    ['Cash', 'Collected by ' + c, 'Income he received himself this year. Income paid directly at source (a Qurbani from ' + fx + ') is not included.'],
+    ['Cash', 'Money back to fund (in cash)', 'Loans repaid to ' + c + ' this year. They add to his cash but are not divided.'],
+    ['Cash', 'Less outflows paid by ' + c, 'Outflows he paid out of the cash he held: those charged to the pool and those taken from the Fund. Expenses paid by ' + tc + ' from ' + tb + ' are not included.'],
+    ['Cash', 'Less cash paid to heirs', 'Payments of type Cash or Qurbani that actually left ' + c + '\u2019s hands this year, to every heir including himself. Adjustments, Qurbani paid directly from income or by another heir, and ' + tb + ' kept by ' + tc + ' are not cash and are not taken off here.'],
+    ['Cash', 'Should be in hand', 'Opening, plus collected by ' + c + ' and money back to the fund, less outflows paid by him and less cash paid to heirs. What his bank and cash together ought to hold now.'],
+    ['Cash', 'Of which owed to others', 'The part of the cash in hand that is still owed to the other heirs (their pending, ignoring 1-rupee rounding).'],
+    ['Cash', 'Actual bank and cash', 'What ' + c + ' really holds in all his accounts and in hand, typed in under Settings > Year (or Summary > Enter actual bank and cash). Used only to compare.'],
+    ['Cash', 'Not entered', 'The actual bank and cash has not been typed in for this year yet, so there is nothing to compare "Should be in hand" with.'],
+    ['Cash', 'Difference', 'Actual bank and cash less "Should be in hand". Zero means everything is entered. Plus = more money than the ledger explains (an income not entered?). Minus = less (a payment or outflow not entered?).'],
+    ['Cash', 'Fund', 'Money that is not divided, mainly loans repaid. Outflows taken from the Fund (often given on as charity) are not charged to the pool.'],
+    ['Cash', 'Money back to fund', 'A loan repaid. It goes into the Fund, not into the income that is divided.'],
+    ['Cash', 'Fund balance', 'All money back to the fund so far, less everything paid from the Fund.'],
+    ['Cash', 'Loan given', 'An outflow category for money lent from the pool. It is not chased; if it ever comes back, enter it as Money back to fund.'],
+    [tb + ' and ' + fx, tb, 'Rent collected by ' + tc + ' and kept by him as part of his share.'],
+    [tb + ' and ' + fx, 'Auto (month)', 'A month counted as received at the rent rate on file, with nothing entered. Tap the month on the Home grid to change it.'],
+    [tb + ' and ' + fx, 'Rent rate', 'The monthly rent from a given month onward. Add a new line under Settings > Rent rates when it changes.'],
+    [tb + ' and ' + fx, tb + ' expense', 'Repairs or bills paid out of the ' + tb + ' rent. Charged to the pool, and ' + tc + ' keeps that much less. It does not touch ' + c + '’s cash.'],
+    [tb + ' and ' + fx, 'Kept by ' + tc, tb + ' rent received less its expenses. Counted as received by ' + tc + ' (not cash).'],
+    [tb + ' and ' + fx, fx, 'Income with a fixed yearly amount' + (fa ? ' (' + fa + ')' : '') + ', paid in instalments with no fixed dates.'],
+    [tb + ' and ' + fx, 'Still due', 'The fixed yearly amount less what has been received so far this year.'],
+    [tb + ' and ' + fx, 'Taken out before the pool', 'Outflows paid straight from ' + fx + ' instalments before the money reached the pool.'],
+    ['Qurbani', 'Qurbani split', 'The calculator on the Summary screen. Type the total cost and it shows each person\u2019s part by sevenths. It only shows the split and saves nothing; use "Record a Qurbani" to enter it.'],
+    ['Qurbani', 'How a Qurbani entry works', '1. Add > Qurbani (or Summary > Record a Qurbani). 2. Enter the date and total cost; each part is filled in by sevenths, and any part can be changed; an heir with 0 sevenths can be given a separate amount. 3. Say how it was paid: from ' + fx + ' (or other income) directly, or by ' + c + ', or by another heir. 4. Save. The app makes linked entries: one Qurbani payment per person, plus an income line when paid directly, or a minus adjustment crediting the heir who paid. 5. They stay together: deleting any one deletes all of them, and to change one, delete it and record it again.'],
+    ['Qurbani', 'Example', 'A 700,000 Qurbani split 3/7, 3/7, 1/7 is 300,000, 300,000 and 100,000. Paid directly from ' + fx + ': gross income rises by 700,000, ' + c + '\u2019s cash does not change, and each part counts as received. Paid by ' + c + ': his cash falls by 700,000. Paid by ' + tc + ': each part counts as received and he is credited 700,000, so 400,000 (the others\u2019 parts) is owed back to him.'],
+    ['Qurbani', 'Sevenths', 'A shared Qurbani is split in 7 parts as set under Heirs (for example 3, 3 and 1). An heir with 0 has a separate Qurbani.'],
+    ['Qurbani', 'Paid directly from income', 'The Qurbani was paid out of ' + fx + ' (or other income) before it reached ' + c + '. The total counts as income, never enters his cash, and each part counts as received (not cash).'],
+    ['Qurbani', 'Paid by ' + c, 'Paid from cash he was holding: each part counts as cash paid out.'],
+    ['Qurbani', 'Paid by another heir', 'That heir paid the whole Qurbani: everyone’s part counts as received, and he is credited the total, so the others’ parts are owed back to him.'],
+    ['Using the app', 'Items to check', 'Things that need a look. Red = fix now, orange = check soon, grey = for information.'],
+    ['Using the app', 'Closed year', 'A year that can be viewed and downloaded but not changed. Reopen it under Settings > Year.'],
+    ['Using the app', 'Waiting to send', 'Saved on this phone, not yet in the workbook. It sends by itself when there is signal.'],
+    ['Using the app', 'Not accepted', 'The workbook refused an entry and says why. Fix it or remove it under Settings.'],
+    ['Using the app', 'Same amount warning', 'Shown when an entry has the same date, amount and payee as one already there. Save anyway if it is genuine.'],
+    ['Using the app', 'Audit trail', 'The workbook keeps every change with who, when, the old and the new value. Deleted entries are kept with the reason.'],
+    ['Using the app', 'View only', 'Heirs can see everything and download the summary, but only ' + c + ' can make entries.']
+  ].map(function (x) { return { g: x[0], t: x[1], d: x[2] }; });
+}
+function glossaryList(D, q) {
+  var terms = glossaryTerms(D), qq = String(q || '').trim().toLowerCase();
+  if (qq) terms = terms.filter(function (x) { return (x.t + ' ' + x.d).toLowerCase().indexOf(qq) >= 0; });
+  var groups = [];
+  terms.forEach(function (x) { var g = groups.filter(function (y) { return y.g === x.g; })[0]; if (!g) groups.push(g = { g: x.g, items: [] }); g.items.push(x); });
+  return el('div', { id: 'glosslist' }, terms.length ? groups.map(function (g) {
+    return [el('h2', { text: g.g }), el('div', { class: 'card gloss' }, g.items.map(function (x) {
+      return el('div', { class: 'term' }, el('b', { text: x.t }), el('div', { text: x.d }));
+    }))];
+  }) : el('p', { class: 'muted', text: 'No term matches.' }));
+}
+
 // Settings: a short list of groups; each opens its own page with a Back button. "Not accepted" stays pinned on top.
 var SET_GROUPS = [
   { k: 'year', icon: 'cal', cust: true }, { k: 'heirs', icon: 'users', cust: true }, { k: 'amounts', icon: 'gear', cust: true },
-  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }
+  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'glossary', icon: 'book' }
 ];
 function setGroupInfo(k, D) {
   var fy = curFy(), set = settingsOf(D), closed = closedYears(D).indexOf(fy) >= 0;
@@ -1111,6 +1191,7 @@ function setGroupInfo(k, D) {
     var last = D.tables.TBZ_RATES.slice().sort(function (a, b) { return a.from_month < b.from_month ? 1 : -1; })[0];
     return { title: (set.tbz_name || 'Monthly rent') + ' rates', short: 'Rent rates', tag: last ? groupNum_(Number(last.rent)) : 'None', sub: last ? groupNum_(Number(last.rent)) + ' from ' + fmtMonth(last.from_month) : 'No rate yet' };
   }
+  if (k === 'glossary') return { title: 'Glossary', short: 'Glossary', tag: glossaryTerms(D).length + ' terms', sub: 'What each word in the app means' };
   if (k === 'lists') return { title: 'Lists', short: 'Lists', tag: 'Tags', sub: 'Sources, categories, banks and accounts' };
   return { title: 'This phone', short: 'This phone', tag: bioReady() ? 'Face ID' : 'PIN', sub: (bioReady() ? 'Face ID on' : 'PIN only') + ' · app ' + BUILD_ID };
 }
@@ -1140,15 +1221,19 @@ SCREENS.settings = function () {
             btn('danger small', 'trash', 'Remove', function () { S.outbox = S.outbox.filter(function (x) { return x !== o; }); S.uploads = S.uploads.filter(function (x) { return x !== o; }); saveState().then(render); })));
       })) : null,
     cust ? null : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' }),
-    cust ? el('div', { class: 'tiles three', id: 'setgroups' }, SET_GROUPS.map(function (g) {
+    el('div', { class: 'tiles three', id: 'setgroups' }, SET_GROUPS.filter(function (g) { return cust || !g.cust; }).map(function (g) {
       var info = setGroupInfo(g.k, D);
       return el('button', { class: 'tile' + (info.bad ? ' bad' : ''), type: 'button', id: 'grp-' + g.k, title: info.sub, onclick: function () { T.setGroup = g.k; T.slide = true; render(); window.scrollTo(0, 0); } },
         svg(g.icon), el('b', { text: info.short || info.title }), el('span', { text: info.bad ? 'Check' : info.tag || '' }));
-    })) : null,
+    })),
     el('h2', null, svg('faceid'), 'This phone'),
     SET_PAGES.phone());
 };
 var SET_PAGES = {
+  glossary: function (D) {
+    return [el('input', { id: 'glosssearch', type: 'search', placeholder: 'Search a word, like minus or pending', autocomplete: 'off', value: T.gq || '',
+      oninput: function (e) { T.gq = e.target.value; var l = document.getElementById('glosslist'); if (l) l.replaceWith(glossaryList(view(), T.gq)); } }), glossaryList(D, T.gq)];
+  },
   year: function (D, set) {
     var fy = curFy(), closed = closedYears(D), isClosed = closed.indexOf(fy) >= 0;
     return [

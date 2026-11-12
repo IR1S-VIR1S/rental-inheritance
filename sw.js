@@ -1,5 +1,5 @@
 /* Rental Inheritance service worker: caches the app, never the ledger. */
-var BUILD = 'eba0e606';
+var BUILD = 'e54ba3b6';
 var CACHE = 'ri-' + BUILD;
 var FILES = ['./', 'index.html', 'app.css', 'app.js', 'logic.js', 'calc.js', 'photos.js', 'exports.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'logo-160.png', 'logo.jpg'];
 // A new version takes over as soon as it has downloaded; the page then reloads itself at a safe moment.

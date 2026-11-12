@@ -190,3 +190,8 @@ input.qamt { width: 130px; text-align: right; flex: none; }
 .tile.bad { box-shadow: inset 0 0 0 2px var(--red); }
 .tile.bad span { color: var(--red); font-weight: 700; }
 #setgroups { margin-top: 6px; }
+.gloss .term { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.gloss .term:last-child { border-bottom: 0; }
+.gloss .term b { display: block; margin-bottom: 2px; color: var(--brand); }
+@media (prefers-color-scheme: dark) { .gloss .term b { color: var(--gold); } }
+#glosssearch { margin-bottom: 4px; }
