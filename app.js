@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'ea8e7689';
+var BUILD_ID = 'ce7ec069';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -255,7 +255,8 @@ function updateScrollLock() {
   }
 }
 var BAR = [['home', 'home', 'Home'], ['ledger', 'ledger', 'Ledger'], ['summary', 'summary', 'Summary'], ['settings', 'gear', 'Settings']];
-function barItems() { var b = BAR.slice(); if (typeof canSeeFund === 'function' && canSeeFund()) b.splice(3, 0, ['fund', 'wallet', fundCfg(T.S.data).who]); return b; }
+// The keeper gets the account in his bar; the custodian opens it from the heir's card on Home (Account tab).
+function barItems() { var b = BAR.slice(); if (typeof canSeeFund === 'function' && canSeeFund() && isKeeperPhone()) b.splice(3, 0, ['fund', 'wallet', fundCfg(T.S.data).who]); return b; }
 function render() {
   var app = document.getElementById('app');
   var bar = T.S && T.S.data && barItems().some(function (b) { return b[0] === T.screen; });
@@ -489,7 +490,7 @@ function stripChips(R) {
   if (refused) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-refused', onclick: function () { T.setGroup = null; go('settings'); } }, svg('alert'), refused + ' not accepted'));
   if (t1) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-t1', onclick: function () { scrollToId('checks'); } }, svg('alert'), t1 + ' to fix'));
   if (t2) out.push(el('button', { class: 'schip t2', type: 'button', id: 'chip-t2', onclick: function () { T.fold.checks = true; render(); scrollToId('checks'); } }, svg('alert'), t2 + ' to check'));
-  if (typeof canSeeFund === 'function' && canSeeFund()) { var fd = recurDue(view(), todayPk()).filter(function (x) { return x.status !== 'coming'; }).length; if (fd) out.push(el('button', { class: 'schip ' + (isKeeperPhone() ? 't2' : 't3'), type: 'button', id: 'chip-funddue', onclick: function () { go('fund'); } }, svg('clock'), fd + ' due for ' + fundCfg(T.S.data).who)); }
+  if (typeof canSeeFund === 'function' && canSeeFund()) { var fd = recurDue(view(), todayPk()).filter(function (x) { return x.status !== 'coming'; }).length; if (fd) out.push(el('button', { class: 'schip ' + (isKeeperPhone() ? 't2' : 't3'), type: 'button', id: 'chip-funddue', onclick: function () { T.fundFrom = 'home'; go('fund'); } }, svg('clock'), fd + ' due for ' + fundCfg(T.S.data).who)); }
   if (waiting) out.push(el('button', { class: 'schip t3', type: 'button', id: 'chip-wait', onclick: function () { sync(); } }, svg('wait'), waiting + ' waiting to send'));
   return out.length ? el('div', { class: 'strip', id: 'strip' }, out) : null;
 }
@@ -646,10 +647,21 @@ function openEntry(tab, r) {
   });
 }
 function openHeir(h) {
-  var D = view();
+  var D = view(), hasAcc = typeof canSeeFund === 'function' && canSeeFund() && fundCfg(D).who === h.name;
   sheetOpen(function () {
+    // The heir's page stays as it is; an add-on bar opens the account kept for this heir.
+    var accBar = null;
+    if (hasAcc) {
+      var F = fundCalc(view(), '', '', todayPk()), dueN = F.due.filter(function (x) { return x.status !== 'coming'; }).length;
+      accBar = el('button', { class: 'accbar', type: 'button', id: 'accbar', onclick: function () { T.sheet = null; T.fundFrom = 'home'; go('fund'); } },
+        el('span', { class: 'rowic' }, svg('wallet')),
+        el('div', { class: 'grow' }, el('b', { text: fundTitle(view()) }), el('div', { class: 'sm', text: 'Kept by ' + F.keeper + ' \u00b7 should be left ' + fmtRs(F.left) })),
+        dueN ? el('span', { class: 'chip due', text: dueN + ' due' }) : null,
+        el('span', { class: 'chev' }, svg('next')));
+    }
     return sheetWrap(h.name, [
       el('h2', null, svg('users'), h.name + ', share ' + h.shareText),
+      accBar,
       el('div', { class: 'kv' },
         el('div', { text: 'Entitlement' }), el('div', { text: fmtRs(h.entitlement) }),
         h.opening ? [el('div', { text: 'Opening balance' }), el('div', { text: fmtRs(h.opening) })] : null,

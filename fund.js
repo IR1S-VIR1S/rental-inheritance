@@ -66,7 +66,7 @@ function fundPeriod() {
 SCREENS.fund = function () {
   var D = view(), c = fundCfg(D), keep = isKeeperPhone(), P = fundPeriod(), F = fundCalc(D, P.from, P.to, todayPk());
   var cats = Object.keys(F.byCat).sort(function (a, b) { return F.byCat[b] - F.byCat[a]; });
-  return el('div', null, topBar(c.who),
+  return el('div', null, keep ? topBar(c.who) : backBar(fundTitle(D), T.fundFrom || 'home'),
     keep ? null : el('div', { class: 'note', id: 'fundviewnote', text: 'Kept by ' + c.keeper + '. You can view it; only ' + c.keeper + ' makes entries here.' }),
     el('div', { class: 'card hero', id: 'fundhero' },
       el('div', { class: 'lbl' }, 'Should be left with ' + c.keeper, qm('Should be left')),
