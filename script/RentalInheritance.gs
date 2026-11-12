@@ -5,8 +5,9 @@
  * and sends the ledger to the phones. Every calculation lives in the phone app.
  * Pure ASCII only (the update code is a SHA-256 of this file).
  */
-var VERSION = '1.2';
-var RELEASE_NOTE = '1.2: invitations made from the custodian\'s phone (Settings > People) with a ready message of instructions to send by WhatsApp; the Sheet menu shows the same message; the custodian\'s phone lists who has joined. Nothing removed. ' +
+var VERSION = '1.2.1';
+var RELEASE_NOTE = '1.2.1: after an update the message says nothing else is needed (the deployment and phone steps show only on a new workbook). ' +
+  '1.2: invitations made from the custodian\'s phone (Settings > People) with a ready message of instructions to send by WhatsApp; the Sheet menu shows the same message; the custodian\'s phone lists who has joined. Nothing removed. ' +
   '1.1: an heir\'s account kept by another heir (expenses, other money in, repeating charges, money held). The keeper\'s phone can write only those three tabs; the custodian can view them; other heirs never receive them. Adds tabs AF_EXP, AF_IN, AF_RECUR, AF_HELD and settings fund_for and fund_keeper. Nothing removed. ' +
   '1.0: first version. Ledger tabs for income, outflows, payments to heirs, TBZ months, money back to fund and opening balances; ' +
   'lists and rates kept as rows; custodian phone enters, heirs view; invitations; receipt photos in Drive; audit trail with a check; 2025-26 brought in as a closed year.';
@@ -395,7 +396,11 @@ function setup() {
   addMissingSettings_();
   p.setProperty('SCHEMA_VER', String(CFG.SCHEMA_VER));
   log_('setup', 'version ' + VERSION);
-  SpreadsheetApp.getUi().alert(CFG.APP_NAME + ' ' + VERSION + ' is ready.\n\nNext: Deploy > Manage deployments (or New deployment the first time), then "Set up my phone (custodian)".');
+  // First time only: the deployment and phone steps. After an update nothing else is needed (the Loader keeps the same web app address).
+  var firstTime = !p.getProperty('WEBAPP_URL') && !tokens_().length;
+  SpreadsheetApp.getUi().alert(firstTime
+    ? CFG.APP_NAME + ' ' + VERSION + ' is ready.\n\nNext: Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone), then "Set up my phone (custodian)".'
+    : CFG.APP_NAME + ' ' + VERSION + ' is installed.\n\nNothing else to do: no new deployment is needed and phones keep working. They pick up the change at their next sync.');
 }
 
 function webAppUrl_(ui, ask) {
