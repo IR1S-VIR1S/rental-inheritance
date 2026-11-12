@@ -214,3 +214,8 @@ input.qamt { width: 130px; text-align: right; flex: none; }
 h2 .qm { align-self: flex-start; margin-top: -2px; }
 th .qm { vertical-align: super; }
 table.t th { white-space: nowrap; }
+/* Scrolling stays inside the pop-up or panel; the page behind never moves. */
+.help, .sheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.help-bg, .sheet-bg, .viewer { overscroll-behavior: contain; touch-action: none; }
+.help, .sheet { touch-action: pan-y; }
+body.locked { overflow: hidden; }

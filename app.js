@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '7877bc2c';
+var BUILD_ID = '0dfde831';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -237,6 +237,20 @@ function curFy() { return T.S.fy || fyOfMonth_(todayPk().slice(0, 7)); }
 function calcNow() { var D = view(); return { D: D, R: yearCalc(D, curFy(), todayPk()) }; }
 
 // ---------- rendering ----------
+// Background stays still while a pop-up, panel or photo is open (body pinned in place; works on iPhone too).
+var SL = { on: false, y: 0 };
+function updateScrollLock() {
+  var want = !!(document.getElementById('helppop') || document.querySelector('.sheet-bg') || document.querySelector('.viewer'));
+  var b = document.body;
+  if (want && !SL.on) {
+    SL.on = true; SL.y = window.scrollY;
+    b.style.position = 'fixed'; b.style.top = (-SL.y) + 'px'; b.style.left = '0'; b.style.right = '0'; b.style.width = '100%'; b.classList.add('locked');
+  } else if (!want && SL.on) {
+    SL.on = false;
+    b.style.position = ''; b.style.top = ''; b.style.left = ''; b.style.right = ''; b.style.width = ''; b.classList.remove('locked');
+    window.scrollTo(0, SL.y);
+  }
+}
 var BAR = [['home', 'home', 'Home'], ['ledger', 'ledger', 'Ledger'], ['summary', 'summary', 'Summary'], ['settings', 'gear', 'Settings']];
 function render() {
   var app = document.getElementById('app');
@@ -250,6 +264,7 @@ function render() {
   var fab = bar && isCust() && FAB[T.screen] && FAB[T.screen]();
   if (fab) document.body.appendChild(el('button', { class: 'fab', id: 'fab', type: 'button', onclick: fab[2] }, svg(fab[0]), fab[1]));
   if (T.sheet) document.body.appendChild(T.sheet());
+  updateScrollLock();
   if (T.reloadPending) setTimeout(function () { if (T.reloadPending) applyUpdate(); }, 400);
 }
 var FAB = {
@@ -951,8 +966,9 @@ function photoStrip(tab, r, closed) {
   return el('div', null, el('label', { class: 'f', text: 'Photos' }), strip, isCust() && !closed ? [input, btn('wide', 'camera', 'Add photo', function () { input.click(); }, 'addphoto2')] : null);
 }
 function openViewer(src) {
-  var v = el('div', { class: 'viewer', id: 'viewer' }, el('img', { src: src, alt: 'Photo' }), btn('primary', 'x', 'Close', function () { v.remove(); }, 'closeviewer'));
+  var v = el('div', { class: 'viewer', id: 'viewer' }, el('img', { src: src, alt: 'Photo' }), btn('primary', 'x', 'Close', function () { v.remove(); updateScrollLock(); }, 'closeviewer'));
   document.body.appendChild(v);
+  updateScrollLock();
 }
 function loadThumb(id, f) {
   if (T.thumbs[id]) return Promise.resolve(T.thumbs[id]);
@@ -1113,7 +1129,7 @@ function openHelp(terms) {
   }).filter(Boolean);
   if (!found.length) return;
   var old = document.getElementById('helppop'); if (old) old.remove();
-  var close = function () { var h = document.getElementById('helppop'); if (h) h.remove(); };
+  var close = function () { var h = document.getElementById('helppop'); if (h) h.remove(); updateScrollLock(); };
   var pop = el('div', { class: 'help-bg', id: 'helppop', onclick: function (e) { if (e.target === e.currentTarget) close(); } },
     el('div', { class: 'help', role: 'dialog', 'aria-label': found[0].t },
       found.map(function (x) {
@@ -1123,6 +1139,7 @@ function openHelp(terms) {
         btn('', 'book', 'Open glossary', function () { close(); T.gq = found[0].t; T.sheet = null; T.form = null; T.setGroup = 'glossary'; go('settings'); }, 'helpgloss'),
         btn('primary', 'x', 'Close', close, 'helpclose'))));
   document.body.appendChild(pop);
+  updateScrollLock();
 }
 
 // ---------- Glossary: every term the app uses, worded from the way the app works it out ----------

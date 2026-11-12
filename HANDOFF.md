@@ -8,6 +8,7 @@
 
 | Version | App build | What changed | Tests |
 |---|---|---|---|
+| App only | 0dfde831 | Page behind stays still while the ? pop-up, a bottom panel or the photo viewer is open (body pinned, scroll position restored on close; overscroll contained in the pop-up) | script 166/166, phone 140/140 x3, update 11/11 |
 | App only | 7877bc2c | Superscript ? beside every glossary term on Home, Summary, forms, Qurbani and Settings > Year: pop-up with the meaning in bullets, Open glossary, Close (does not flip switches or lose typing). Glossary adds every Summary cash label and Qurbani split / how it works / example. Sync icon turns clockwise while syncing, always (also with reduced motion: owner's rule) | script 166/166, loader 15/15, phone 134/134 x3, update 11/11 |
 | App only | e54ba3b6 | Glossary tile in Settings (everyone, heirs too): searchable terms in sections Totals, Heirs, Payments, Cash (every Summary cash label), rent and lease, Qurbani (split calculator, how an entry works, worked example), Using the app; names taken from Settings | script 166/166, phone 116/116 x3, update 11/11 |
 | App only | eba0e606 | Arrows swapped: income points down (coming in), outflows point up (going out) | script 166/166, phone 104/104, update 11/11 |
