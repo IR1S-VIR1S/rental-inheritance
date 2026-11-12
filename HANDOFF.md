@@ -5,9 +5,14 @@
 - History.gs (private, never published) holds the heirs, shares, rates, opening balances and the 2025-26 ledger. It is read only the first time "Set up or repair" runs on an empty workbook.
 - Rule agreed with the owner: changes go on the phone side wherever possible; the workbook script stays thin (stores rows, checks who may write, audit trail, photos). Calculations live in `calc.js`.
 - Publishing: changes go live by default.
+- Owner's standing rules for this app:
+  - Every new term the app introduces gets a Glossary entry and a superscript "?" quick help in the same update. The phone suite checks that every "?" resolves and that every Add option carries one.
+  - The sync icon turns clockwise (the way its arrow points) whenever syncing, always, including with reduced motion.
+  - Updates arrive by themselves (no restart); a pop-up or panel freezes the page behind it.
 
 | Version | App build | What changed | Tests |
 |---|---|---|---|
+| App only | 5aa9532c | Spend for an heir (custodian): what it was for (tags + own), details, paid to, amount, bank, photo; stored as payment type 'Spent for heir' (cash Y, details in extra), added to the PAYMENT_TYPES list on first use; counted as received by the heir and cash paid out; edit and delete; Excel columns. ? on every Add option; Income glossary term; owner's rules written above | script 166/166, phone 157/157 x3, update 11/11 |
 | App only | 0dfde831 | Page behind stays still while the ? pop-up, a bottom panel or the photo viewer is open (body pinned, scroll position restored on close; overscroll contained in the pop-up) | script 166/166, phone 140/140 x3, update 11/11 |
 | App only | 7877bc2c | Superscript ? beside every glossary term on Home, Summary, forms, Qurbani and Settings > Year: pop-up with the meaning in bullets, Open glossary, Close (does not flip switches or lose typing). Glossary adds every Summary cash label and Qurbani split / how it works / example. Sync icon turns clockwise while syncing, always (also with reduced motion: owner's rule) | script 166/166, loader 15/15, phone 134/134 x3, update 11/11 |
 | App only | e54ba3b6 | Glossary tile in Settings (everyone, heirs too): searchable terms in sections Totals, Heirs, Payments, Cash (every Summary cash label), rent and lease, Qurbani (split calculator, how an entry works, worked example), Using the app; names taken from Settings | script 166/166, phone 116/116 x3, update 11/11 |

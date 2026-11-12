@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '0dfde831';
+var BUILD_ID = '5aa9532c';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -274,7 +274,7 @@ var FAB = {
 function softRender() {
   var ae = document.activeElement, typing = ae && ae.matches && ae.matches('#app input, #app textarea');
   if (['unlock', 'join', 'setpin'].indexOf(T.screen) >= 0) return;
-  if (T.screen === 'form' || T.screen === 'qurbani' || T.sheet || typing) { renderTop(); return; }
+  if (T.screen === 'form' || T.screen === 'qurbani' || T.screen === 'spend' || T.sheet || typing) { renderTop(); return; }
   var y = window.scrollY; render(); window.scrollTo(0, y);
 }
 function renderTop() { var s = document.getElementById('syncpill'); if (s && T.S) s.replaceWith(syncPill()); }
@@ -580,6 +580,7 @@ function entryText(tab, r) {
     return { t: r.payee, s: [r.category, r.taken_from, fmtDate(r.date)].filter(Boolean).join(' · '),
       chip: String(r.taken_from).toLowerCase() === 'fund' ? ['wait', 'From fund'] : r.charged !== 'Y' ? ['due', 'Not charged'] : String(r.taken_from).toLowerCase().indexOf(tw) === 0 ? ['wait', 'From ' + r.taken_from] : null };
   }
+  if (tab === 'PAYMENTS' && isSpend(r)) { var se = extraOf(r); return { t: r.heir + ': ' + (se.spent || 'Spent') + (se.item ? ', ' + se.item : ''), s: ['Spent for ' + r.heir, se.vendor ? 'paid to ' + se.vendor : '', fmtDate(r.date), se.mode].filter(Boolean).join(' · '), chip: ['wait', 'Spent for'] }; }
   if (tab === 'PAYMENTS') return { t: r.heir + ': ' + r.type, s: [r.batch, fmtDate(r.date), extraOf(r).mode, r.cash === 'Y' ? 'cash' : 'not cash'].filter(Boolean).join(' · ') };
   if (tab === 'TBZ') return { t: 'TBZ ' + fmtMonth(r.month), s: r.auto ? 'Counted automatically at the rate on file' : [r.received === 'Y' ? 'Received' : 'Not received', Number(r.expenses) ? 'expenses ' + groupNum_(r.expenses) : '', r.note].filter(Boolean).join(' · '),
     chip: r.auto ? ['wait', 'Auto'] : r.received === 'Y' ? null : ['due', 'Not received'] };
@@ -612,6 +613,7 @@ function openEntry(tab, r) {
     var kv = Object.keys(SCHEMA[tab].fields).map(function (k) { var v = fieldText(tab, k, r[k]); return v ? [el('div', { text: SCHEMA[tab].fields[k].label }), el('div', { text: v })] : null; });
     var vf = VFIELDS[tab] || {}, ex0 = extraOf(r);
     Object.keys(vf).forEach(function (k) { if (ex0[vf[k].key]) kv.push([el('div', { text: vf[k].label }), el('div', { text: ex0[vf[k].key] })]); });
+    if (tab === 'PAYMENTS' && isSpend(r)) [['spent', 'Spent for'], ['item', 'Details'], ['vendor', 'Paid to']].forEach(function (x) { if (ex0[x[0]]) kv.push([el('div', { text: x[1] }), el('div', { text: ex0[x[0]] })]); });
     return sheetWrap(SCHEMA[tab].label, el('div', { class: 'detail' }, [
       el('h2', null, svg(KIND_ICON[tab]), SCHEMA[tab].label + (r.id ? ' ' + r.id : '')),
       r.pending ? el('div', { class: 'pending' + (r.error ? ' bad' : ''), text: r.error ? 'Not accepted: ' + r.error : 'Waiting to send' }) : null,
@@ -620,7 +622,7 @@ function openEntry(tab, r) {
       closed ? closedNote(r.fy) : null,
       group ? el('div', { class: 'note', id: 'groupnote', text: 'Part of one Qurbani (' + groupRows.length + ' entries' + (extraOf(r).direct ? ', paid directly from ' + (r.source || 'income') : '') + '). Deleting removes all of them.' }) : null,
       isCust() && !closed ? el('div', { class: 'actions2' },
-        group ? el('span') : btn('primary', 'edit', 'Edit', function () { openForm(tab, r); }, 'editbtn'),
+        group ? el('span') : btn('primary', 'edit', 'Edit', function () { if (tab === 'PAYMENTS' && isSpend(r)) openSpend(r.heir, r); else openForm(tab, r); }, 'editbtn'),
         btn('danger', 'trash', 'Delete', function () { document.getElementById('delbox').classList.remove('hidden'); reason.focus(); }, 'delbtn')) : null,
       isCust() && !closed ? el('div', { id: 'delbox', class: 'hidden' },
         el('label', { class: 'f', for: 'delreason', text: 'Why delete it?' }),
@@ -648,12 +650,14 @@ function openHeir(h) {
         h.tbzRetained ? [el('div', { text: 'TBZ retained' }), el('div', { text: fmtRs(h.tbzRetained) })] : null,
         el('div', { text: 'Paid in cash' }), el('div', { text: fmtRs(h.cash) }),
         el('div', { text: 'Other (adjustments)' }), el('div', { text: fmtRs(h.nonCash - h.tbzRetained) }),
+        h.payments.some(isSpend) ? [el('div', null, 'Of which spent for ' + h.name, qm('Spent for an heir')), el('div', { text: fmtRs(sum_(h.payments.filter(isSpend), function (x) { return x.amount; })) })] : null,
         el('div', { text: 'Received in all' }), el('div', { text: fmtRs(h.received) }),
         el('div', { class: 'tot', text: 'Pending' }), el('div', { class: 'tot', text: fmtRs(h.pending) }),
         el('div', { text: 'Carry forward' }), el('div', { text: h.carry })),
       el('h2', { text: 'Payments' }),
       el('div', { class: 'card list' }, h.payments.length ? h.payments.map(function (p) { return entryRow('PAYMENTS', p); }) : el('p', { class: 'muted', text: 'None this year.' })),
       isCust() && !curClosed() ? btn('primary wide', 'plus', 'Add payment to ' + h.name, function () { openForm('PAYMENTS', null, { heir: h.name }); }) : null,
+      isCust() && !curClosed() && !h.custodian ? btn('wide', 'cash', 'Spend for ' + h.name, function () { openSpend(h.name); }, 'spendfor-' + h.name) : null,
       btn('wide', 'x', 'Close', sheetClose)]);
   });
 }
@@ -690,14 +694,16 @@ function openAddChooser() {
   sheetOpen(function () {
     return sheetWrap('Add', [el('h2', { text: 'Add to ' + curFy() }),
       el('div', { class: 'tiles three' },
-        tile('INCOME', 'Income', 'Thaika, kiraya, mall'), tile('OUTFLOWS', 'Outflow', 'Zakat, charity, loans, costs'),
-        tile('PAYMENTS', 'Payment to heir', 'Cash, Qurbani, adjustment'), tile('TBZ', 'Change a TBZ month', 'Months count as received unless changed'),
-        el('button', { class: 'tile', type: 'button', id: 'add-TBZEXP', onclick: openTbzExpense }, svg('out'), el('b', { text: 'TBZ expense' }), el('span', { text: 'Repairs, bills: ' + (settingsOf(view()).tbz_collector || 'collector') + ' keeps less' })),
-        tile('FUND_IN', 'Money back to fund', 'A loan repaid'),
-        el('button', { class: 'tile', type: 'button', id: 'add-QURBANI', onclick: function () { openQurbani(); } }, svg('users'), el('b', { text: 'Qurbani' }), el('span', { text: 'Split by sevenths, from income or cash' }))),
+        tile('INCOME', 'Income', 'Thaika, kiraya, mall', 'Income'), tile('OUTFLOWS', 'Outflow', 'Zakat, charity, loans, costs', ['Outflow', 'Charged to the pool']),
+        tile('PAYMENTS', 'Payment to heir', 'Cash, Qurbani, adjustment', ['Payment to heir', 'Cash (payment type)', 'Adjustment']),
+        tile('TBZ', 'Change a TBZ month', 'Months count as received unless changed', 'Auto (month)'),
+        el('button', { class: 'tile', type: 'button', id: 'add-TBZEXP', onclick: openTbzExpense }, svg('out'), el('b', null, 'TBZ expense', qm((settingsOf(view()).tbz_name || 'Monthly rent') + ' expense')), el('span', { text: 'Repairs, bills: ' + (settingsOf(view()).tbz_collector || 'collector') + ' keeps less' })),
+        tile('FUND_IN', 'Money back to fund', 'A loan repaid', 'Money back to fund'),
+        el('button', { class: 'tile', type: 'button', id: 'add-SPEND', onclick: function () { openSpend(); } }, svg('cash'), el('b', null, 'Spend for an heir', qm('Spent for an heir')), el('span', { text: 'Repairs, medicines, bills' })),
+        el('button', { class: 'tile', type: 'button', id: 'add-QURBANI', onclick: function () { openQurbani(); } }, svg('users'), el('b', null, 'Qurbani', qm(['How a Qurbani entry works', 'Sevenths'])), el('span', { text: 'Split by sevenths, from income or cash' }))),
       btn('wide', 'x', 'Close', sheetClose)]);
   });
-  function tile(tab, title, sub) { return el('button', { class: 'tile', type: 'button', id: 'add-' + tab, onclick: function () { openForm(tab); } }, svg(KIND_ICON[tab]), el('b', { text: title }), el('span', { text: sub })); }
+  function tile(tab, title, sub, term) { return el('button', { class: 'tile', type: 'button', id: 'add-' + tab, onclick: function () { openForm(tab); } }, svg(KIND_ICON[tab]), el('b', null, title, term ? qm(term) : null), el('span', { text: sub })); }
 }
 // A date inside the year being shown: today if it is that year, otherwise its last day (never in the future).
 function defaultDate() {
@@ -774,7 +780,7 @@ SCREENS.form = function () {
     } })];
     if (def.t === 'heir') return [label, chips(heirs, f[k], function (x) { f[k] = x; }, id)];
     if (def.t.indexOf('list:') === 0) {
-      var vals = listOf(D, def.t.slice(5)); if (f[k] && vals.indexOf(f[k]) < 0) vals = vals.concat([f[k]]);
+      var vals = listOf(D, def.t.slice(5)).filter(function (v) { return v !== SPEND_TYPE; }); if (f[k] && vals.indexOf(f[k]) < 0) vals = vals.concat([f[k]]);
       return [label, chips(vals, f[k], function (x) { f[k] = x; if (k === 'type') { f.cash = x === 'Adjustment' ? 'N' : 'Y'; drawCashHint(); } }, id)];
     }
     if (def.t === 'yn') {
@@ -879,6 +885,89 @@ function openQurbani() {
   T.form = { tab: 'QURBANI', q: { date: defaultDate(), total: '', direct: true, source: set.fixed_source || set.fixed_name || '', parts: {}, typed: {}, payer: set.custodian || '' } };
   T.sheet = null; go('qurbani');
 }
+// ---------- Spend for an heir: money spent on an heir's behalf (repairs, medicines, bills), counted as received by that heir ----------
+var SPEND_TYPE = 'Spent for heir';
+var DEFAULT_SPEND = ['House repairs', 'Medical', 'Medicines', 'Utility bills', 'Groceries', 'Household items', 'Travel', 'Other'];
+function isSpend(r) { return r && r.type === SPEND_TYPE; }
+function spendList(D) {
+  var rows = (D.tables.LISTS || []).filter(function (r) { return r.list === 'SPEND_FOR'; });
+  var off = rows.filter(function (r) { return String(r.active) === 'N'; }).map(function (r) { return r.value; });
+  var vals = DEFAULT_SPEND.filter(function (v) { return off.indexOf(v) < 0; });
+  rows.forEach(function (r) { if (String(r.active) !== 'N' && vals.indexOf(r.value) < 0) vals.splice(vals.length - 1, 0, r.value); });
+  return vals;
+}
+function openSpend(heir, r) {
+  if (curClosed() && !r) { toast(curFy() + ' is closed.'); return; }
+  var D = view(), ex = extraOf(r || {});
+  var H = heirsOf(D).map(function (h) { return h.name; }), cust = settingsOf(D).custodian || '';
+  // Default: the last heir listed who is not the custodian (the heir this is usually used for).
+  var dflt = heir || H.filter(function (n) { return n !== cust; }).pop() || '';
+  T.form = { tab: 'SPEND', orig: r || null, sp: r ? { heir: r.heir, what: ex.spent || '', item: ex.item || '', vendor: ex.vendor || '', amount: String(Math.abs(Number(r.amount)) || ''),
+    date: r.date || defaultDate(), mode: ex.mode || '', note: r.note || '' } : { heir: dflt, what: '', item: '', vendor: '', amount: '', date: defaultDate(), mode: '', note: '' }, photos: [] };
+  T.sheet = null; go('spend');
+}
+SCREENS.spend = function () {
+  var D = view(), F = T.form, P = F.sp, err = el('div', { class: 'err', id: 'sperr' });
+  var H = heirsOf(D).map(function (h) { return h.name; }), cust = settingsOf(D).custodian || 'the custodian';
+  var whatInput = el('input', { id: 'sp-what', autocomplete: 'off', value: P.what, placeholder: 'Or type what it was for', oninput: function (e) { P.what = e.target.value; } });
+  var modeInput = el('input', { id: 'sp-mode', autocomplete: 'off', value: P.mode, placeholder: 'Or type another bank or account', oninput: function (e) { P.mode = e.target.value; } });
+  var amtHint = el('div', { class: 'hint', id: 'sp-amount-hint', text: Number(P.amount) ? fmtRs(Number(P.amount)) : '' });
+  function save() {
+    var what = String(P.what || '').trim(), item = String(P.item || '').trim();
+    if (!P.heir) { err.textContent = 'Choose who it was spent for.'; return; }
+    if (!what) { err.textContent = 'Choose what it was for.'; return; }
+    if (!item) { err.textContent = 'Write the details, for example what was repaired.'; return; }
+    var ex = extraOf(F.orig || {});
+    ex.spent = what; ex.item = item;
+    if (String(P.vendor || '').trim()) ex.vendor = String(P.vendor).trim(); else delete ex.vendor;
+    if (String(P.mode || '').trim()) ex.mode = String(P.mode).trim(); else delete ex.mode;
+    var rec = { date: P.date, batch: 'Spent for ' + P.heir, heir: P.heir, type: SPEND_TYPE, amount: String(P.amount || ''), cash: 'Y',
+      note: String(P.note || '').trim(), extra: JSON.stringify(ex) };
+    if (F.orig && F.orig.id) rec.id = F.orig.id;
+    var ctx = ctxOf(D, F.orig); if (ctx.lists.PAYMENT_TYPES.indexOf(SPEND_TYPE) < 0) ctx.lists.PAYMENT_TYPES.push(SPEND_TYPE);
+    var e = validateRecord_('PAYMENTS', rec, ctx);
+    var fy = isYmd_(rec.date) ? fyOfMonth_(rec.date.slice(0, 7)) : '';
+    if (!e && fy && closedYears(D).indexOf(fy) >= 0) e = fy + ' is closed.';
+    if (e) { err.textContent = e; return; }
+    var S2 = T.S;
+    // The payment type and any new "for" or bank go on the workbook lists first (same sync, in order).
+    if (!(D.tables.LISTS || []).some(function (r) { return r.list === 'PAYMENT_TYPES' && r.value === SPEND_TYPE; }))
+      S2.outbox.push({ op: 'save', tab: 'LISTS', req_id: uuid(), rec: { list: 'PAYMENT_TYPES', value: SPEND_TYPE, active: 'Y', sort: '9' } });
+    if (DEFAULT_SPEND.indexOf(what) < 0 && !(D.tables.LISTS || []).some(function (r) { return r.list === 'SPEND_FOR' && r.value.toLowerCase() === what.toLowerCase(); }))
+      S2.outbox.push({ op: 'save', tab: 'LISTS', req_id: uuid(), rec: { list: 'SPEND_FOR', value: what, active: 'Y', sort: '9' } });
+    addModeIfNew(D, P.mode);
+    var req;
+    if (F.orig && !F.orig.id) { var q = S2.outbox.filter(function (o) { return o.req_id === F.orig.key; })[0]; if (q) { q.rec = rec; q.error = ''; req = q.req_id; } }
+    else { req = uuid(); if (rec.id) S2.outbox = S2.outbox.filter(function (o) { return !(o.op === 'save' && o.rec.id === rec.id && o.error); }); S2.outbox.push({ op: 'save', tab: 'PAYMENTS', req_id: req, rec: rec }); }
+    var photos = F.photos, back = T.prevScreen || 'home';
+    T.form = null; if (fy && fy !== curFy()) T.S.fy = fy;
+    addPhotos('PAYMENTS', rec.id || req, photos).then(function () { return saveState(); })
+      .then(function () { go(back); toast('Saved: ' + fmtRs(Number(rec.amount)) + ' spent for ' + rec.heir + '.', true); sync(true); });
+  }
+  return el('div', null, backBar(F.orig ? 'Edit spending' : 'Spend for an heir', T.prevScreen || 'home'),
+    el('p', { class: 'muted' }, 'Money ' + cust + ' spends on an heir’s behalf. It counts as received by that heir and as cash paid out.', qm('Spent for an heir')),
+    el('label', { class: 'f', text: 'Spent for' }),
+    chips(H.filter(function (n) { return n !== settingsOf(D).custodian; }), P.heir, function (x) { P.heir = x; }, 'sp-heir'),
+    el('label', { class: 'f', text: 'What was it for?' }),
+    chips(spendList(D), P.what, function (x) { P.what = x; whatInput.value = x; }, 'sp-what-chips'), whatInput,
+    el('label', { class: 'f', for: 'sp-item', text: 'Details' }),
+    el('textarea', { id: 'sp-item', maxlength: '300', placeholder: 'For example: roof leak repaired over the kitchen; plumber and materials', oninput: function (e) { P.item = e.target.value; } }, P.item),
+    el('label', { class: 'f', for: 'sp-vendor', text: 'Paid to (optional)' }),
+    el('input', { id: 'sp-vendor', autocomplete: 'off', value: P.vendor, placeholder: 'Shop, workman or person', oninput: function (e) { P.vendor = e.target.value; } }),
+    el('label', { class: 'f', for: 'sp-amount', text: 'Amount (Rs)' }),
+    el('input', { id: 'sp-amount', inputmode: 'numeric', autocomplete: 'off', value: P.amount, placeholder: 'Rupees', oninput: function (e) {
+      var v = e.target.value.replace(/[^\d]/g, ''); e.target.value = v; P.amount = v; amtHint.textContent = Number(v) ? fmtRs(Number(v)) : '';
+    } }), amtHint,
+    el('label', { class: 'f', for: 'sp-date', text: 'Date' }),
+    el('input', { id: 'sp-date', type: 'date', value: P.date, max: todayPk(), oninput: function (e) { P.date = e.target.value; } }),
+    el('label', { class: 'f' }, 'Paid by (cash or bank)', qm('Paid by (cash or bank)')),
+    chips(modeList(D), P.mode, function (x) { P.mode = x; modeInput.value = x; }, 'sp-mode-chips'), modeInput,
+    el('label', { class: 'f', for: 'sp-note', text: 'Note (optional)' }),
+    el('textarea', { id: 'sp-note', maxlength: '500', oninput: function (e) { P.note = e.target.value; } }, P.note),
+    F.orig ? null : pickPhotosField(F),
+    btn('primary wide', 'check', 'Save', save, 'spsave'), err);
+};
+
 SCREENS.qurbani = function () {
   var D = view(), set = settingsOf(D), Q = T.form.q, H = heirsOf(D), cust = set.custodian || '';
   var sevenths = sum_(H, function (h) { return h.qurbani; }) || 7, err = el('div', { class: 'err', id: 'qerr' });
@@ -1149,6 +1238,7 @@ function glossaryTerms(D) {
   return [
     ['Totals', 'Financial year', 'Runs from 1 July to 30 June, written like 2026-27. Change the year with the year button at the top of each screen.'],
     ['Totals', 'Gross income to divide', 'All income entered for the year, plus ' + tb + ' rent received. A Qurbani paid directly from income is included too.'],
+    ['Totals', 'Income', 'Money received for the year: ' + fx + ' instalments, rents and any other source. Each receipt is one entry with who collected it. ' + tb + ' rent is not entered here; it is counted month by month.'],
     ['Totals', 'Outflow', 'Money paid out of the pool: zakat, charity, help, property costs, loans given.'],
     ['Totals', 'Charged to the pool', 'An outflow that is taken off before dividing, so everyone bears it by share. "Not charged" outflows are only listed for checking and change nothing.'],
     ['Totals', 'Net income to divide', 'Gross income less the outflows charged to the pool. Each heir’s share is worked out from this.'],
@@ -1168,6 +1258,7 @@ function glossaryTerms(D) {
     ['Payments', 'Adjustment', 'A correction that counts toward a share but is not cash, for example a tax correction moved from one heir to another, or arrears from an earlier year. It never changes cash in hand.'],
     ['Payments', 'Minus', 'The switch under an amount that makes it negative. On a payment: taken back from, or credited to, that heir. On an opening balance: the heir owes the pool. On an outflow: a correction that reduces the total.'],
     ['Payments', 'Not cash', 'Counts toward the share only; no money left ' + c + '’s hands (adjustments, Qurbani paid directly or by another heir).'],
+    ['Payments', 'Spent for an heir', 'Money ' + c + ' spends on an heir\u2019s behalf, for example house repairs, medicines or bills. It counts as received by that heir, so the pending goes down, and as cash paid out by ' + c + '. The details say what it was for and who was paid.'],
     ['Payments', 'Batch', 'Optional label to group payments made together, like "Payment 1".'],
     ['Payments', 'Paid by (cash or bank)', 'Which bank or account a payment or receipt went through, for example ABL or Meezan Bank. A label only: it does not change any total.'],
     ['Cash', 'Custodian', c + ' collects the income (except ' + tb + ') and pays everyone. Only his phone can make entries.'],
@@ -1348,8 +1439,8 @@ var SET_PAGES = {
   },
   lists: function (D) {
     return [el('p', { class: 'muted', text: 'Dark = offered as a tag. Tap one to stop or start offering it.' }),
-      el('div', { id: 'lists' }, LIST_NAMES.map(function (n) {
-        var label = { SOURCES: 'Income sources', CATEGORIES: 'Outflow categories', PAYMENT_TYPES: 'Payment types', TAKEN_FROM: 'Taken from (suggestions)', MODES: 'Banks and accounts' }[n];
+      el('div', { id: 'lists' }, LIST_NAMES.concat(['SPEND_FOR']).map(function (n) {
+        var label = { SOURCES: 'Income sources', CATEGORIES: 'Outflow categories', PAYMENT_TYPES: 'Payment types', TAKEN_FROM: 'Taken from (suggestions)', MODES: 'Banks and accounts', SPEND_FOR: 'Spent for an heir (extra things)' }[n];
         var rows = D.tables.LISTS.filter(function (r) { return r.list === n; });
         return el('div', { class: 'card' }, el('b', { text: label }), el('div', { class: 'chips listchips' }, rows.map(function (r) {
           return el('button', { type: 'button', class: String(r.active) === 'N' ? '' : 'on', 'data-v': r.value, onclick: function () {
@@ -1457,7 +1548,7 @@ function checkUpdate() {
 function safeToReload() {
   var ae = document.activeElement;
   if (T.syncing || T.bioBusy || T.sheet) return false;
-  if (['form', 'qurbani', 'setpin', 'join', 'loading'].indexOf(T.screen) >= 0) return false;
+  if (['form', 'qurbani', 'spend', 'setpin', 'join', 'loading'].indexOf(T.screen) >= 0) return false;
   if (ae && ae.matches && ae.matches('input, textarea, select')) return false;
   if (document.querySelector('.viewer')) return false;
   return true;
@@ -1509,7 +1600,7 @@ function updateApp() {
 function touch() { T.idleAt = Date.now(); }
 ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, touch, true); });
 var _go = go;
-go = function (s) { if ((s === 'form' || s === 'qurbani') && T.screen !== 'form' && T.screen !== 'qurbani') T.prevScreen = T.screen; return _go(s); };
+go = function (s) { var F = ['form', 'qurbani', 'spend']; if (F.indexOf(s) >= 0 && F.indexOf(T.screen) < 0) T.prevScreen = T.screen; return _go(s); };
 setInterval(function () { if (T.key && Date.now() - T.idleAt > IDLE_MS) lock(); }, 15000);
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible') { if (T.key && Date.now() - T.idleAt > IDLE_MS) lock(); else if (T.S) sync(true); }
