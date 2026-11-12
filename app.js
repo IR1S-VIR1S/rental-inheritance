@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'e54ba3b6';
+var BUILD_ID = '7877bc2c';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -277,7 +277,9 @@ function syncPill() {
   else if (S.syncErr) t = 'Not synced';
   else if (n) t = n + ' waiting';
   else t = S.lastSync ? new Date(S.lastSync).toTimeString().slice(0, 5) : 'Not synced';
-  return el('button', { class: 'pill', id: 'syncpill', type: 'button', 'aria-label': 'Sync now', title: 'Last synced', onclick: function () { sync(); } }, svg('sync'), t);
+  // While syncing, the arrow turns the way it points (clockwise). Always on, even with reduced motion (owner's rule).
+  var ic = svg('sync'); if (T.syncing) ic.setAttribute('class', 'spin');
+  return el('button', { class: 'pill' + (T.syncing ? ' busy' : ''), id: 'syncpill', type: 'button', 'aria-label': T.syncing ? 'Syncing' : 'Sync now', title: 'Last synced', onclick: function () { sync(); } }, ic, t);
 }
 function yearPill() {
   return el('button', { class: 'pill year', id: 'yearpill', type: 'button', onclick: openYearPicker }, curFy(), svg('down'));
@@ -491,15 +493,15 @@ SCREENS.home = function () {
     T.S.syncErr ? el('div', { class: 'note', id: 'syncerr', text: T.S.syncErr }) : null,
     R.closed ? closedNote(R.fy) : null,
     el('div', { class: 'card hero', id: 'hero' },
-      el('div', { class: 'lbl', text: 'Net income to divide, ' + R.fy }),
+      el('div', { class: 'lbl' }, 'Net income to divide, ' + R.fy, qm('Net income to divide')),
       el('div', { class: 'big', id: 'net', text: fmtRs(R.net) }),
       el('div', { class: 'sub', text: 'Gross ' + groupNum_(R.gross) + ' less outflows ' + groupNum_(R.charged) })),
-    el('h2', null, svg('users'), 'Heirs'),
+    el('h2', null, svg('users'), 'Heirs', qm(['Pending', 'Carry forward'])),
     el('div', { class: 'heirs', id: 'heirs' }, R.heirs.map(heirCard)),
     el('button', { class: 'card list', type: 'button', id: 'cashcard', onclick: function () { go('summary'); } },
-      el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: 'Cash with ' + R.custodian }), el('div', { class: 'sm', text: 'Should be in hand now' })),
+      el('div', { class: 'row' }, el('div', { class: 'grow' }, el('b', { text: 'Cash with ' + R.custodian }), el('div', { class: 'sm' }, 'Should be in hand now', qm('Should be in hand'))),
         el('div', { class: 'amt', id: 'cashhand', text: fmtRs(R.cash.shouldHave) })),
-      el('div', { class: 'row' }, el('div', { class: 'sm grow', text: 'Of which owed to others' }), el('div', { class: 'amt', text: fmtRs(R.cash.owedOthers) })),
+      el('div', { class: 'row' }, el('div', { class: 'sm grow' }, 'Of which owed to others', qm('Of which owed to others')), el('div', { class: 'amt', text: fmtRs(R.cash.owedOthers) })),
       R.cash.actual !== null ? el('div', { class: 'row' }, el('div', { class: 'sm grow', text: 'Actual bank and cash: ' + fmtRs(R.cash.actual) }),
         el('span', { class: 'chip ' + (R.cash.diff === 0 ? 'ok' : 'due') }, R.cash.diff === 0 ? 'Matches' : 'Off by ' + groupNum_(R.cash.diff))) : null),
     el('div', { class: 'card', id: 'patokicard' },
@@ -720,6 +722,7 @@ var FORM_LAYOUT = {
   FUND_IN: ['date', 'from_whom', 'amount', 'note'],
   OPENING: ['item', 'amount', 'note']
 };
+var FIELD_HELP = { taken_from: 'Taken from', type: ['Cash (payment type)', 'Qurbani (payment type)', 'Adjustment'], pay_mode: 'Paid by (cash or bank)', batch: 'Batch', item: 'Opening balance', category: ['Outflow', 'Loan given'] };
 var SUGGEST = { taken_from: 'TAKEN_FROM', mode: 'MODES', pay_mode: 'MODES' };
 // Banks and accounts offered as tags. Added once to the workbook's MODES list so they can be switched off in Settings > Lists.
 var DEFAULT_MODES = ['Cash', 'ABL', 'MCB', 'Meezan Bank', 'HBL', 'UBL', 'Bank Alfalah', 'PCB transfer', 'JazzCash', 'Easypaisa'];
@@ -749,7 +752,7 @@ SCREENS.form = function () {
   var F = T.form, tab = F.tab, f = F.f, D = view(), S = SCHEMA[tab], err = el('div', { class: 'err', id: 'formerr' });
   var heirs = heirsOf(D).map(function (h) { return h.name; });
   function fieldEl(k) {
-    var def = S.fields[k] || { t: 'text', label: VFIELDS[tab][k].label }, id = 'f-' + k, label = el('label', { class: 'f', for: id, text: def.label + (def.req ? '' : ' (optional)') });
+    var def = S.fields[k] || { t: 'text', label: VFIELDS[tab][k].label }, id = 'f-' + k, label = el('label', { class: 'f', for: id }, def.label + (def.req ? '' : ' (optional)'), FIELD_HELP[k] && !(tab === 'TBZ' && k === 'received') ? qm(FIELD_HELP[k]) : null);
     if (def.t === 'date') return [label, el('input', { id: id, type: 'date', value: f[k] || '', max: todayPk(), oninput: function (e) { f[k] = e.target.value; } })];
     if (def.t === 'month') return [label, el('input', { id: id, type: 'month', value: f[k] || '', oninput: function (e) {
       f[k] = e.target.value; if (tab === 'TBZ' && !F.rentTyped && f.month) { f.rent = tbzRate(D, f.month) || f.rent; var ri = document.getElementById('f-rent'); if (ri) { ri.value = f.rent; ri.dispatchEvent(new Event('input')); } }
@@ -761,7 +764,7 @@ SCREENS.form = function () {
     }
     if (def.t === 'yn') {
       var lab = k === 'charged' ? 'Charged to the pool (reduces what is divided)' : k === 'received' ? 'Received' : def.label;
-      return el('label', { class: 'switch', for: id }, el('span', { text: lab }),
+      return el('label', { class: 'switch', for: id }, el('span', null, lab, k === 'charged' ? qm(['Charged to the pool', 'Listed but not charged']) : k === 'received' ? qm('Auto (month)') : null),
         el('input', { id: id, type: 'checkbox', checked: f[k] === 'Y', onchange: function (e) { f[k] = e.target.checked ? 'Y' : 'N'; } }));
     }
     if (def.t === 'amt' || def.t === 'samt' || def.t === 'int') {
@@ -771,7 +774,7 @@ SCREENS.form = function () {
         oninput: function (e) { var v = e.target.value.replace(/[^\d]/g, ''); if (v !== e.target.value) e.target.value = v; f[k] = v; if (k === 'rent') F.rentTyped = true; upd(); } });
       upd();
       var minus = def.t === 'samt' ? el('label', { class: 'switch', for: id + '-minus' },
-        el('span', { text: tab === 'PAYMENTS' ? 'Minus (taken back from this heir)' : tab === 'OPENING' ? 'Minus (this heir owes the pool)' : 'Minus (a correction)' }),
+        el('span', null, tab === 'PAYMENTS' ? 'Minus (taken back from this heir)' : tab === 'OPENING' ? 'Minus (this heir owes the pool)' : 'Minus (a correction)', qm('Minus')),
         el('input', { id: id + '-minus', type: 'checkbox', checked: !!F.minus[k], onchange: function (e) { F.minus[k] = e.target.checked; upd(); } })) : null;
       return [label, inp, hint, minus];
     }
@@ -910,7 +913,7 @@ SCREENS.qurbani = function () {
     saveState().then(function () { go('home'); toast('Qurbani saved: ' + items.length + ' entries.', true); sync(true); });
   }
   var directSw = el('input', { id: 'q-direct', type: 'checkbox', checked: Q.direct, onchange: function (e) { Q.direct = e.target.checked; srcBox.classList.toggle('hidden', !Q.direct); payBox.classList.toggle('hidden', Q.direct); drawSum(); } });
-  var payBox = el('div', { class: Q.direct ? 'hidden' : '', id: 'qpaybox' }, el('label', { class: 'f', text: 'Who paid for it?' }),
+  var payBox = el('div', { class: Q.direct ? 'hidden' : '', id: 'qpaybox' }, el('label', { class: 'f' }, 'Who paid for it?', qm(['Paid by ' + (set.custodian || 'the custodian'), 'Paid by another heir'])),
     chips(H.map(function (h) { return h.name; }).filter(function (n) { return n === cust || n === (set.tbz_collector || ''); }).concat(H.map(function (h) { return h.name; }).filter(function (n) { return n !== cust && n !== (set.tbz_collector || ''); })),
       Q.payer, function (x) { Q.payer = x; drawSum(); }, 'q-payer'));
   var srcBox = el('div', { class: Q.direct ? '' : 'hidden', id: 'qsrcbox' }, el('label', { class: 'f', text: 'Paid from' }),
@@ -923,9 +926,9 @@ SCREENS.qurbani = function () {
     el('input', { id: 'q-total', inputmode: 'numeric', autocomplete: 'off', value: Q.total, placeholder: 'Rupees', oninput: function (e) {
       var v = e.target.value.replace(/[^\d]/g, ''); e.target.value = v; Q.total = v; Q.typed = {}; split(); drawParts();
     } }),
-    el('label', { class: 'switch', for: 'q-direct' }, el('span', { text: 'Paid from ' + (set.fixed_name || 'income') + ' (or other income), never reached ' + (cust || 'the custodian') }), directSw),
+    el('label', { class: 'switch', for: 'q-direct' }, el('span', null, 'Paid from ' + (set.fixed_name || 'income') + ' (or other income), never reached ' + (cust || 'the custodian'), qm('Paid directly from income')), directSw),
     srcBox, payBox,
-    el('label', { class: 'f', text: 'Each person’s part' }), list, totalHint,
+    el('label', { class: 'f' }, 'Each person’s part', qm(['Sevenths', 'How a Qurbani entry works'])), list, totalHint,
     btn('primary wide', 'check', 'Save Qurbani', save, 'qsave'), err);
 };
 
@@ -990,12 +993,12 @@ SCREENS.summary = function () {
     R.closed ? closedNote(R.fy) : null,
     el('p', { class: 'muted', text: fyLabel(R.fy) }),
     el('div', { class: 'card' }, el('div', { class: 'kv', id: 'totals' },
-      el('div', { text: 'Gross income to divide' }), el('div', { text: fmtRs(R.gross) }),
-      el('div', { text: 'Less outflows charged to pool' }), el('div', { text: fmtRs(R.charged) }),
-      el('div', { class: 'tot', text: 'Net income to divide' }), el('div', { class: 'tot', id: 'sumnet', text: fmtRs(R.net) }))),
+      el('div', null, 'Gross income to divide', qm('Gross income to divide')), el('div', { text: fmtRs(R.gross) }),
+      el('div', null, 'Less outflows charged to pool', qm('Charged to the pool')), el('div', { text: fmtRs(R.charged) }),
+      el('div', { class: 'tot' }, 'Net income to divide', qm('Net income to divide')), el('div', { class: 'tot', id: 'sumnet', text: fmtRs(R.net) }))),
     el('h2', null, svg('users'), 'Heirs'),
     el('div', { class: 'card' }, el('table', { class: 't', id: 'heirtable' },
-      el('tr', null, el('th', { text: 'Heir' }), el('th', { text: 'Entitled' }), el('th', { text: 'Received' }), el('th', { text: 'Pending' })),
+      el('tr', null, el('th', null, 'Heir', qm(['Share', 'Carry forward'])), el('th', null, 'Entitled', qm(['Entitlement', 'Opening balance'])), el('th', null, 'Received', qm('Received')), el('th', null, 'Pending', qm('Pending'))),
       R.heirs.map(function (h) {
         return el('tr', null, el('td', null, el('b', { text: h.name }), el('div', { class: 'sm', text: h.shareText + (h.opening ? ', opening ' + groupNum_(h.opening) : '') }), el('div', { class: 'sm', text: h.carry })),
           el('td', { text: groupNum_(h.entitlement + h.opening) }), el('td', { text: groupNum_(h.received) }), el('td', { class: h.pending < 0 ? 'neg' : '', text: groupNum_(h.pending) }));
@@ -1004,36 +1007,36 @@ SCREENS.summary = function () {
         el('td', { text: groupNum_(R.totals.received) }), el('td', { text: groupNum_(R.totals.pending) })))),
     el('h2', null, svg('cash'), 'Cash with ' + R.custodian),
     el('div', { class: 'card' }, el('div', { class: 'kv', id: 'cashkv' },
-      el('div', { text: 'Opening (' + R.cash.openingFrom + ')' }), el('div', { text: groupNum_(R.cash.opening) }),
-      el('div', { text: 'Collected by ' + R.custodian }), el('div', { text: groupNum_(R.cash.collected) }),
-      R.cash.fundIn ? [el('div', { text: 'Money back to fund' }), el('div', { text: groupNum_(R.cash.fundIn) })] : null,
-      R.cash.direct ? [el('div', { class: 'sm', text: 'Not in cash: paid directly from income (Qurbani)' }), el('div', { class: 'sm', text: groupNum_(R.cash.direct) })] : null,
-      el('div', { text: 'Less outflows paid by ' + R.custodian }), el('div', { text: groupNum_(-R.cash.outPaid) }),
-      el('div', { text: 'Less cash paid to heirs' }), el('div', { text: groupNum_(-R.cash.paidHeirs) }),
-      el('div', { class: 'tot', text: 'Should be in hand' }), el('div', { class: 'tot', id: 'shouldhave', text: fmtRs(R.cash.shouldHave) }),
-      el('div', { text: 'Actual bank and cash' }), el('div', { text: R.cash.actual === null ? 'Not entered' : fmtRs(R.cash.actual) }),
-      R.cash.diff !== null ? [el('div', { text: 'Difference' }), el('div', { text: fmtRs(R.cash.diff) })] : null),
+      el('div', null, 'Opening (' + R.cash.openingFrom + ')', qm('Opening (carried from last year)')), el('div', { text: groupNum_(R.cash.opening) }),
+      el('div', null, 'Collected by ' + R.custodian, qm('Collected by ' + R.custodian)), el('div', { text: groupNum_(R.cash.collected) }),
+      R.cash.fundIn ? [el('div', null, 'Money back to fund', qm('Money back to fund (in cash)')), el('div', { text: groupNum_(R.cash.fundIn) })] : null,
+      R.cash.direct ? [el('div', { class: 'sm' }, 'Not in cash: paid directly from income (Qurbani)', qm('Paid directly from income')), el('div', { class: 'sm', text: groupNum_(R.cash.direct) })] : null,
+      el('div', null, 'Less outflows paid by ' + R.custodian, qm('Less outflows paid by ' + R.custodian)), el('div', { text: groupNum_(-R.cash.outPaid) }),
+      el('div', null, 'Less cash paid to heirs', qm('Less cash paid to heirs')), el('div', { text: groupNum_(-R.cash.paidHeirs) }),
+      el('div', { class: 'tot' }, 'Should be in hand', qm('Should be in hand')), el('div', { class: 'tot', id: 'shouldhave', text: fmtRs(R.cash.shouldHave) }),
+      el('div', null, 'Actual bank and cash', qm(R.cash.actual === null ? ['Actual bank and cash', 'Not entered'] : 'Actual bank and cash')), el('div', { text: R.cash.actual === null ? 'Not entered' : fmtRs(R.cash.actual) }),
+      R.cash.diff !== null ? [el('div', null, 'Difference', qm('Difference')), el('div', { text: fmtRs(R.cash.diff) })] : null),
       isCust() && !R.closed ? btn('wide', 'edit', 'Enter actual bank and cash', openCashActual, 'cashactual') : null),
     el('h2', null, svg('income'), 'Income'),
     el('div', { class: 'card' }, el('div', { class: 'kv' }, kvRows(bySource), el('div', { class: 'tot', text: 'Gross' }), el('div', { class: 'tot', text: groupNum_(R.gross) }))),
-    el('h2', null, svg('out'), 'Outflows charged to pool'),
+    el('h2', null, svg('out'), 'Outflows charged to pool', qm('Charged to the pool')),
     el('div', { class: 'card' }, el('div', { class: 'kv' }, kvRows(byCat), el('div', { class: 'tot', text: 'Total' }), el('div', { class: 'tot', text: groupNum_(R.charged) })),
-      R.notCharged.length ? el('p', { class: 'muted', text: R.notCharged.length + ' listed but not charged: ' + fmtRs(sum_(R.notCharged, function (o) { return o.amount; })) + '.' }) : null),
+      R.notCharged.length ? el('p', { class: 'muted' }, R.notCharged.length + ' listed but not charged: ' + fmtRs(sum_(R.notCharged, function (o) { return o.amount; })) + '.', qm('Listed but not charged')) : null),
     el('h2', null, svg('building'), R.patoki.name + ' and ' + R.tbz.name),
     el('div', { class: 'card' }, el('div', { class: 'kv' },
-      el('div', { text: R.patoki.name + ', fixed yearly amount' }), el('div', { text: groupNum_(R.patoki.fixed) }),
+      el('div', null, R.patoki.name + ', fixed yearly amount', qm(R.patoki.name)), el('div', { text: groupNum_(R.patoki.fixed) }),
       el('div', { text: R.patoki.name + ' received' }), el('div', { text: groupNum_(R.patoki.received) }),
-      el('div', { text: R.patoki.name + ' still due' }), el('div', { text: groupNum_(R.patoki.due) }),
-      el('div', { text: 'Taken out before the pool' }), el('div', { text: groupNum_(R.patoki.takenOut) }),
-      el('div', { text: R.tbz.name + ' rent received' }), el('div', { text: groupNum_(R.tbz.gross) }),
-      el('div', { text: R.tbz.name + ' expenses' }), el('div', { text: groupNum_(R.tbz.expenses + R.tbz.outflows) }),
+      el('div', null, R.patoki.name + ' still due', qm('Still due')), el('div', { text: groupNum_(R.patoki.due) }),
+      el('div', null, 'Taken out before the pool', qm('Taken out before the pool')), el('div', { text: groupNum_(R.patoki.takenOut) }),
+      el('div', null, R.tbz.name + ' rent received', qm(['Auto (month)', 'Rent rate'])), el('div', { text: groupNum_(R.tbz.gross) }),
+      el('div', null, R.tbz.name + ' expenses', qm(R.tbz.name + ' expense')), el('div', { text: groupNum_(R.tbz.expenses + R.tbz.outflows) }),
       R.tbz.outRows.map(function (o) { return [el('div', { class: 'sm', text: '\u2022 ' + o.payee + (o.date ? ', ' + fmtDate(o.date) : '') }), el('div', { class: 'sm', text: groupNum_(o.amount) })]; }),
-      el('div', { text: R.tbz.name + ' net kept by ' + R.tbz.collector }), el('div', { text: groupNum_(R.tbz.net) }))),
-    R.fund.balance || R.fund.inYear ? [el('h2', null, svg('fund'), 'Fund'), el('div', { class: 'card' }, el('div', { class: 'kv' },
+      el('div', null, R.tbz.name + ' net kept by ' + R.tbz.collector, qm('Kept by ' + R.tbz.collector)), el('div', { text: groupNum_(R.tbz.net) }))),
+    R.fund.balance || R.fund.inYear ? [el('h2', null, svg('fund'), 'Fund', qm(['Fund', 'Fund balance'])), el('div', { class: 'card' }, el('div', { class: 'kv' },
       el('div', { text: 'Back to fund this year' }), el('div', { text: groupNum_(R.fund.inYear) }),
       el('div', { text: 'Paid from fund this year' }), el('div', { text: groupNum_(R.fund.outYear) }),
       el('div', { class: 'tot', text: 'Fund balance' }), el('div', { class: 'tot', text: groupNum_(R.fund.balance) })))] : null,
-    el('h2', null, svg('users'), 'Qurbani split'),
+    el('h2', null, svg('users'), 'Qurbani split', qm(['Qurbani split', 'How a Qurbani entry works'])),
     el('div', { class: 'card' }, el('label', { class: 'f', for: 'qtotal', text: 'Total cost of the shared Qurbani (Rs)' }),
       el('input', { id: 'qtotal', inputmode: 'numeric', autocomplete: 'off', oninput: function (e) { drawQ(e.target.value); } }), qOut,
       el('p', { class: 'hint', text: 'Split in sevenths as set under Heirs and shares in Settings.' }),
@@ -1092,6 +1095,36 @@ function openCashActual() {
     return '';
   });
 }
+// ---------- "?" quick help: a small pop-up with the glossary meaning of a term, in bullets ----------
+function qm(terms) {
+  terms = [].concat(terms);
+  return el('span', { class: 'qm', role: 'button', tabindex: '0', 'aria-label': 'What is ' + terms[0] + '?', 'data-help': terms[0],
+    onclick: function (e) { e.stopPropagation(); e.preventDefault(); openHelp(terms); },
+    onkeydown: function (e) { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); openHelp(terms); } } }, '?');
+}
+function helpBullets(d) {
+  var parts = /^1\. /.test(d) ? d.split(/\s(?=\d\. )/).map(function (x) { return x.replace(/^\d\.\s*/, ''); }) : d.split(/(?<=[.!?])\s+(?=[A-Z0-9"])/);
+  return parts.map(function (x) { return x.trim(); }).filter(Boolean);
+}
+function openHelp(terms) {
+  var all = glossaryTerms(view()), found = terms.map(function (t) {
+    var tl = t.toLowerCase();
+    return all.filter(function (x) { return x.t.toLowerCase() === tl; })[0] || all.filter(function (x) { return x.t.toLowerCase().indexOf(tl) === 0; })[0];
+  }).filter(Boolean);
+  if (!found.length) return;
+  var old = document.getElementById('helppop'); if (old) old.remove();
+  var close = function () { var h = document.getElementById('helppop'); if (h) h.remove(); };
+  var pop = el('div', { class: 'help-bg', id: 'helppop', onclick: function (e) { if (e.target === e.currentTarget) close(); } },
+    el('div', { class: 'help', role: 'dialog', 'aria-label': found[0].t },
+      found.map(function (x) {
+        return el('div', { class: 'helpterm' }, el('b', { text: x.t }), el('ul', null, helpBullets(x.d).map(function (b) { return el('li', { text: b }); })));
+      }),
+      el('div', { class: 'actions2' },
+        btn('', 'book', 'Open glossary', function () { close(); T.gq = found[0].t; T.sheet = null; T.form = null; T.setGroup = 'glossary'; go('settings'); }, 'helpgloss'),
+        btn('primary', 'x', 'Close', close, 'helpclose'))));
+  document.body.appendChild(pop);
+}
+
 // ---------- Glossary: every term the app uses, worded from the way the app works it out ----------
 function glossaryTerms(D) {
   var set = settingsOf(D), c = set.custodian || 'the custodian', tb = set.tbz_name || 'Monthly rent', tc = set.tbz_collector || 'the collector';
@@ -1239,17 +1272,17 @@ var SET_PAGES = {
     return [
       el('p', { class: 'muted', text: fyLabel(fy) + '. Change the year with the year button on the other screens.' }),
       el('div', { class: 'card' },
-        el('label', { class: 'switch', for: 'closedsw' }, el('span', { text: 'Closed (no more changes)' }),
+        el('label', { class: 'switch', for: 'closedsw' }, el('span', null, 'Closed (no more changes)', qm('Closed year')),
           el('input', { id: 'closedsw', type: 'checkbox', checked: isClosed, onchange: function (e) {
             var list = closed.filter(function (y) { return y !== fy; }); if (e.target.checked) list.push(fy);
             saveSetting('closed_years', list.sort().join(','), 'Years that cannot be changed (comma separated)').then(function () { render(); sync(true); });
           } })),
         el('p', { class: 'hint', text: 'A closed year can be viewed and downloaded but not changed. You can reopen it here.' })),
-      el('h2', null, svg('cash'), 'Actual bank and cash'),
+      el('h2', null, svg('cash'), 'Actual bank and cash', qm(['Actual bank and cash', 'Difference'])),
       el('div', { class: 'card list' }, el('button', { class: 'row', type: 'button', id: 'cashbtn2', onclick: openCashActual },
         el('div', { class: 'grow' }, el('div', { text: 'Total in bank and cash now' }), el('div', { class: 'sm', text: 'Compared with what should be in hand' })),
         el('div', { class: 'amt', text: set['cash_actual_' + fy] ? groupNum_(Number(set['cash_actual_' + fy])) : 'Not entered' }), el('span', { class: 'chev' }, svg('next')))),
-      el('h2', null, svg('list'), 'Opening balances'),
+      el('h2', null, svg('list'), 'Opening balances', qm('Opening balance')),
       el('div', { class: 'card list', id: 'openings' }, D.tables.OPENING.filter(function (r) { return r.fy === fy; }).map(function (r) {
         return el('button', { class: 'row', type: 'button', onclick: function () { if (isClosed) return; T.prevScreen = 'settings'; openForm('OPENING', r); } },
           el('div', { class: 'grow' }, el('b', { text: r.item }), el('div', { class: 'sm', text: r.note || '' }), r.pending ? el('div', { class: 'pending', text: r.error ? 'Not accepted: ' + r.error : 'Waiting to send' }) : null),

@@ -195,3 +195,22 @@ input.qamt { width: 130px; text-align: right; flex: none; }
 .gloss .term b { display: block; margin-bottom: 2px; color: var(--brand); }
 @media (prefers-color-scheme: dark) { .gloss .term b { color: var(--gold); } }
 #glosssearch { margin-bottom: 4px; }
+.qm { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; min-width: 20px; margin-left: 6px; border-radius: 50%;
+  background: var(--grey-tint); color: var(--brand); font-size: 12px; font-weight: 800; line-height: 1; vertical-align: middle; cursor: pointer; position: relative; }
+.qm::after { content: ""; position: absolute; inset: -10px; }
+.hero .qm { background: rgba(255,255,255,.2); color: #fff; }
+.help-bg { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.help { background: var(--card); color: var(--text); border-radius: 18px; padding: 18px 16px; width: 100%; max-width: 440px; max-height: 80vh; overflow-y: auto; animation: rise .18s ease-out; }
+.helpterm b { display: block; font-size: 17px; color: var(--brand); margin-top: 4px; }
+@media (prefers-color-scheme: dark) { .helpterm b { color: var(--gold); } }
+.helpterm ul { margin: 6px 0 12px; padding-left: 20px; }
+.helpterm li { margin: 4px 0; font-size: 15px; }
+@keyframes spin-cw { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.pill svg.spin, .btn svg.spin { animation: spin-cw .9s linear infinite !important; transform-origin: 50% 50%; }
+@media (prefers-reduced-motion: reduce) { .pill svg.spin, .btn svg.spin { animation: spin-cw 1.2s linear infinite !important; } }
+/* "?" as a superscript, like a power in maths: small, raised, tight against the word. The tap area stays finger-sized. */
+.qm { width: 15px; height: 15px; min-width: 15px; margin-left: 2px; font-size: 10px; vertical-align: super; top: -0.15em; line-height: 15px; }
+.qm::after { inset: -13px; }
+h2 .qm { align-self: flex-start; margin-top: -2px; }
+th .qm { vertical-align: super; }
+table.t th { white-space: nowrap; }
