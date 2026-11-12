@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'ce7ec069';
+var BUILD_ID = 'b13b920a';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -111,6 +111,7 @@ function deriveKey(pin, salt) {
 }
 function stored() { try { return JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) { return null; } }
 function saveState() {
+  if (T.preview) return Promise.resolve();
   if (!T.key || !T.S) return Promise.resolve();
   var iv = crypto.getRandomValues(new Uint8Array(12)), st = stored();
   return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, T.key, new TextEncoder().encode(JSON.stringify(T.S))).then(function (ct) {
@@ -127,6 +128,7 @@ function unlock(pin) {
   });
 }
 function lock() {
+  T.preview = null;
   T.bioTried = false;
   T.key = null; T.S = null; T.form = null; T.sheet = null; T.thumbs = {};
   T.screen = stored() ? 'unlock' : 'join'; render();
@@ -138,6 +140,8 @@ function resetPhone() {
 
 // ---------- server ----------
 function api(body) {
+  // While viewing as someone else only photos may be read (with the real access); nothing else is sent.
+  if (T.preview) { if (body.op !== 'file') return Promise.reject({ error: 'Viewing as someone else: nothing is sent.' }); body = Object.assign({}, body, { token: T.preview.realS.token }); }
   var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 45000);
   return fetch(T.S ? T.S.api : T.joinApi, { method: 'POST', body: JSON.stringify(body), redirect: 'follow',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ctl.signal })
@@ -145,6 +149,7 @@ function api(body) {
     .finally(function () { clearTimeout(timer); });
 }
 function sync(quiet) {
+  if (T.preview) { if (!quiet) toast('Viewing as ' + T.preview.who + ': nothing is synced.'); return Promise.resolve(); }
   if (T.syncing) { T.syncAgain = true; return T.syncP || Promise.resolve(); }
   if (!T.S || !T.S.token) return Promise.resolve();
   if (!navigator.onLine) { if (!quiet) toast('No signal. Saved on this phone.'); softRender(); return Promise.resolve(); }
@@ -261,7 +266,7 @@ function render() {
   var app = document.getElementById('app');
   var bar = T.S && T.S.data && barItems().some(function (b) { return b[0] === T.screen; });
   app.className = bar ? '' : 'nobar';
-  var fn = SCREENS[T.screen] || SCREENS.boot, main = el('main', { class: T.slide ? 'slide' : '' }, fn());
+  var fn = SCREENS[T.screen] || SCREENS.boot, main = el('main', { class: T.slide ? 'slide' : '' }, T.preview ? previewBanner() : null, fn());
   T.slide = false;
   app.replaceChildren(main);
   document.querySelectorAll('.bar,.fab,.sheet-bg').forEach(function (x) { x.remove(); });
@@ -1324,6 +1329,7 @@ function glossaryTerms(D) {
     ['Using the app', 'Same amount warning', 'Shown when an entry has the same date, amount and payee as one already there. Save anyway if it is genuine.'],
     ['Using the app', 'Audit trail', 'The workbook keeps every change with who, when, the old and the new value. Deleted entries are kept with the reason.'],
     ['Using the app', 'Invitation', 'A one-time message that lets a person set up the app on their phone. ' + c + ' makes it under Settings > People (or from the Sheet menu) and sends it by WhatsApp. It works for 7 days, for that person only; after first use it works again for 24 hours so the Home Screen copy can join, then never.'],
+    ['Using the app', 'View as (debug mode)', 'For ' + c + ' only, under Settings. Shows the app exactly as another person\u2019s phone shows it: their tabs, buttons and data, cut the way the workbook cuts it for them. An amber bar says whose view it is. Anything tried there is never saved or sent; "Back to my view" brings your own view back unchanged.'],
     ['Using the app', 'View only', 'Heirs can see everything and download the summary, but only ' + c + ' can make entries.']
   ].concat(fundOn(D) ? (function () {
     var fc = fundCfg(D), g = fc.who + '\u2019s account', k = fc.keeper, w = fc.who;
@@ -1353,10 +1359,37 @@ function glossaryList(D, q) {
   }) : el('p', { class: 'muted', text: 'No term matches.' }));
 }
 
+// ---------- View as (debug mode): the custodian sees another person's phone, cut as the workbook cuts it; nothing saved or sent ----------
+function previewBanner() {
+  return el('div', { class: 'previewbar', id: 'previewbar' }, svg('eye'),
+    el('div', { class: 'grow' }, el('b', { text: 'Viewing as ' + T.preview.who }), el('div', { text: 'Nothing is saved or sent.' })),
+    el('button', { class: 'btn small', type: 'button', id: 'previewexit', onclick: exitPreview }, 'Back to my view'));
+}
+function enterPreview(name) {
+  if (T.preview || !isCust()) return;
+  var real = T.S, set = settingsOf(real.data), keeper = String(set.fund_keeper || '').trim().toLowerCase() === name.toLowerCase() && !!set.fund_for;
+  var S2 = JSON.parse(JSON.stringify(real));
+  S2.role = 'viewer'; S2.name = name; S2.token = 'preview'; S2.outbox = []; S2.uploads = []; S2.syncErr = '';
+  S2.data.role = 'viewer'; S2.data.name = name; S2.data.keeper = keeper;
+  if (!keeper) {
+    ['AF_EXP', 'AF_IN', 'AF_RECUR', 'AF_HELD'].forEach(function (t) { if (S2.data.tables[t]) S2.data.tables[t] = []; });
+    S2.data.files = (S2.data.files || []).filter(function (f) { return ['AF_EXP', 'AF_IN', 'AF_RECUR', 'AF_HELD'].indexOf(f.tab) < 0; });
+  }
+  T.preview = { realS: real, who: name, screen: T.screen, setGroup: T.setGroup };
+  T.S = S2; T.setGroup = null; T.sheet = null; T.form = null;
+  go('home');
+}
+function exitPreview() {
+  if (!T.preview) return;
+  var p = T.preview; T.preview = null;
+  T.S = p.realS; T.sheet = null; T.form = null; T.setGroup = 'preview';
+  go('settings'); toast('Back to your own view.', true);
+}
+
 // Settings: a short list of groups; each opens its own page with a Back button. "Not accepted" stays pinned on top.
 var SET_GROUPS = [
   { k: 'year', icon: 'cal', cust: true }, { k: 'heirs', icon: 'users', cust: true }, { k: 'amounts', icon: 'gear', cust: true },
-  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'people', icon: 'users', cust: true }, { k: 'glossary', icon: 'book' }
+  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'people', icon: 'users', cust: true }, { k: 'preview', icon: 'eye', cust: true }, { k: 'glossary', icon: 'book' }
 ];
 function setGroupInfo(k, D) {
   var fy = curFy(), set = settingsOf(D), closed = closedYears(D).indexOf(fy) >= 0;
@@ -1373,6 +1406,7 @@ function setGroupInfo(k, D) {
     var last = D.tables.TBZ_RATES.slice().sort(function (a, b) { return a.from_month < b.from_month ? 1 : -1; })[0];
     return { title: (set.tbz_name || 'Monthly rent') + ' rates', short: 'Rent rates', tag: last ? groupNum_(Number(last.rent)) : 'None', sub: last ? groupNum_(Number(last.rent)) + ' from ' + fmtMonth(last.from_month) : 'No rate yet' };
   }
+  if (k === 'preview') return { title: 'View as (debug mode)', short: 'View as', tag: 'Debug', sub: 'See exactly what another person\u2019s phone shows. Nothing is saved or sent.' };
   if (k === 'people') return { title: 'People and invitations', short: 'People', tag: T.people ? T.people.length + ' joined' : 'Invite', sub: 'Invite an heir with a ready WhatsApp message, and see who has joined' };
   if (k === 'glossary') return { title: 'Glossary', short: 'Glossary', tag: glossaryTerms(D).length + ' terms', sub: 'What each word in the app means' };
   if (k === 'lists') return { title: 'Lists', short: 'Lists', tag: 'Tags', sub: 'Sources, categories, banks and accounts' };
@@ -1413,6 +1447,20 @@ SCREENS.settings = function () {
     SET_PAGES.phone());
 };
 var SET_PAGES = {
+  preview: function (D, set) {
+    var cust = set.custodian || '', k = String(set.fund_keeper || '').trim();
+    return [
+      el('p', { class: 'muted' }, 'Choose a person to see the app as their phone shows it: the same tabs, buttons and data. You can try things; nothing is saved or sent, and your own view comes back unchanged.', qm('View as (debug mode)')),
+      el('div', { class: 'card list', id: 'previewlist' }, heirsOf(D).filter(function (h) { return h.name !== cust; }).map(function (h) {
+        var isK = k && h.name.toLowerCase() === k.toLowerCase();
+        return el('button', { class: 'row', type: 'button', 'data-as': h.name, onclick: function () { enterPreview(h.name); } },
+          el('span', { class: 'rowic' }, svg('eye')),
+          el('div', { class: 'grow' }, el('b', { text: 'View as ' + h.name }), el('div', { class: 'sm', text: isK ? 'View only, keeps ' + (set.fund_for || 'the account') + ' (enters on that tab)' : 'View only' })),
+          el('span', { class: 'chev' }, svg('next')));
+      })),
+      el('p', { class: 'hint', text: 'Photos open with your own access, so you may see a receipt the person could also see.' })
+    ];
+  },
   people: function (D, set) {
     var nameIn, err = el('div', { class: 'err', id: 'inverr' }), cust = set.custodian || '';
     if (!T.peopleLoading && T.peopleFor !== T.S.token) {
@@ -1548,6 +1596,9 @@ var SET_PAGES = {
   },
   phone: function () {
     var S = T.S, cust = isCust();
+    // While viewing as someone else, nothing here may act on this real phone.
+    if (T.preview) return [el('div', { class: 'card' }, el('div', { class: 'kv' }, el('div', { text: 'Signed in as' }), el('div', { text: S.name + ' (view only)' })),
+      el('p', { class: 'hint', text: 'Face ID, updates and reset are hidden while viewing as someone else.' }))];
     return [
       bioCard(),
       el('div', { class: 'card' },
@@ -1637,6 +1688,7 @@ function checkUpdate() {
 }
 // Safe = nothing half typed, no panel open, no PIN or Face ID in progress, no sync running.
 function safeToReload() {
+  if (T.preview) return false;
   var ae = document.activeElement;
   if (T.syncing || T.bioBusy || T.sheet) return false;
   if (['form', 'qurbani', 'spend', 'fundexp', 'setpin', 'join', 'loading'].indexOf(T.screen) >= 0) return false;

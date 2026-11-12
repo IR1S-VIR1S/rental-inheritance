@@ -12,6 +12,7 @@
 
 | Version | App build | What changed | Tests |
 |---|---|---|---|
+| App only | b13b920a | View as (debug mode), custodian only, Settings: another person's phone cut as the workbook cuts it (role viewer, keeper flag, account tabs emptied for non-keepers); amber bar; api blocked except reading photos with the real access; sync and saveState blocked; Face ID, update and reset hidden; Back to my view restores the real state. Glossary term and ? | script 202/202, phone 210/210 x3, update 11/11 |
 | Script 1.2.1 | ce7ec069 | After an update the setup message says nothing else is needed; the deployment and phone steps show only on a new workbook (no WEBAPP_URL and no phones) | script 202/202, loader 17/17, phone 197/197 |
 | App only | ce7ec069 | Custodian: account tab removed from the bottom bar; the heir's page (tap the heir's card on Home) keeps its content and gains an add-on bar (account name, keeper, should be left, due count) that opens the full account with Back. Keeper keeps the tab in his bar | script 202/202, phone 197/197 x3, update 11/11 |
 | Script 1.2 + app | ea8e7689 | Invitations from the custodian's phone (Settings > People): op invite (custodian only, view-only role) returns a ready message (inviteText_, shared slice, ASCII) with steps, link and backup line; WhatsApp, Share, Copy; op people lists who joined (no secrets). Sheet menu dialog shows the same message. Glossary: Invitation | script 202/202, loader 15/15, phone 193/193 x3, update 11/11 |
