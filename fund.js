@@ -2,7 +2,8 @@
    Only the keeper's phone enters it; the custodian views it; other heirs never receive it (the workbook enforces this). */
 'use strict';
 var FUND_CATS = ['Electricity bill', 'Gas bill', 'Water bill', 'Groceries', 'Medicines', 'Doctor and tests', 'Travel', 'Kaam wali wages',
-  'Mobile and internet', 'Clothes', 'House repairs', 'Gifts and Eid', 'Meat', 'Fish', 'Milk', 'Other'];
+  'Mobile and internet', 'Clothes', 'House repairs', 'Gifts and Eid', 'Chicken', 'Mutton', 'Fish', 'Milk', 'Other'];
+var BILL_CATS = ['Chicken', 'Mutton', 'Fish', 'Milk']; // always listed on the account page, even with no orders
 // Bought by the order: each order is entered on its own. A round amount gets one friendly question before saving
 // (type the exact amount, or keep it as remembered); nothing is flagged afterwards.
 var BILL_RE = /meat|fish|milk|mutton|beef|chicken|gosht|machli|doodh/i;
@@ -73,12 +74,11 @@ function recurDue(D, today) {
 
 // ---------- the tab ----------
 function billCard(D, P) {
-  var Sm = billSummary(D, P.from, P.to), cats = Object.keys(Sm);
-  if (!cats.length) return null;
-  return el('div', { id: 'billcheck' }, el('h2', null, svg('doc'), 'Meat, fish and milk', qm('Order by order')),
+  var Sm = billSummary(D, P.from, P.to), cats = BILL_CATS.concat(Object.keys(Sm).filter(function (k) { return BILL_CATS.indexOf(k) < 0; }));
+  return el('div', { id: 'billcheck' }, el('h2', null, svg('doc'), 'Chicken, mutton, fish and milk', qm('Order by order')),
     el('div', { class: 'card' }, el('div', { class: 'kv', id: 'billsum' }, cats.map(function (k) {
-      var x = Sm[k];
-      return [el('div', { text: k + ', ' + P.label }), el('div', { text: plural(x.n, 'order') + ' · ' + groupNum_(x.amt) })];
+      var x = Sm[k] || { n: 0, amt: 0 };
+      return [el('div', { text: k + ', ' + P.label }), el('div', { class: x.n ? '' : 'muted', text: x.n ? plural(x.n, 'order') + ' · ' + groupNum_(x.amt) : 'No orders' })];
     }))));
 }
 function fundPeriod() {

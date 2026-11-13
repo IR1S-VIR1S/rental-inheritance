@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '74f8e2bd';
+var BUILD_ID = '4f53272a';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -1376,7 +1376,7 @@ function glossaryTerms(D) {
       [g, 'Due and skip', 'A repeating charge shows as due from its day each month until it is marked Paid (amount can be changed) or Skipped for that month. Unpaid from last month shows as overdue.'],
       [g, 'Account statement', 'A PDF of ' + w + '\u2019s account for this month, last month, this year or all time: balance at the start, money given, each expense, spending by what for, and the balance at the end.'],
       [g, 'Account keeper', 'The heir who keeps the account, set under Settings > Amounts and roles. Only that heir\u2019s phone can enter its expenses.'],
-      [g, 'Order by order', 'Meat, fish and milk are entered one order at a time, with the amount on the bill if there is one, so the monthly totals are what was actually paid. The amount always starts empty. If it is a round figure (1,000 or more, in 500s) the app asks once whether to type the exact amount; choosing From memory saves it as it is. A bill photo is welcome but never needed.']
+      [g, 'Order by order', 'Chicken, mutton, fish and milk each have their own line and are entered one order at a time, with the amount on the bill if there is one, so the monthly totals are what was actually paid. The amount always starts empty. If it is a round figure (1,000 or more, in 500s) the app asks once whether to type the exact amount; choosing From memory saves it as it is. A bill photo is welcome but never needed. The account page shows all four for the period, with No orders where nothing was entered.']
     ];
   })() : []).map(function (x) { return { g: x[0], t: x[1], d: x[2] }; });
 }
