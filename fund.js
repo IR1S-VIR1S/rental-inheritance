@@ -124,6 +124,7 @@ SCREENS.fund = function () {
     el('h2', null, svg('doc'), 'Statement', qm('Account statement')),
     btn('primary wide', 'doc', 'Statement for ' + P.label + ' (PDF)', function () {
       shareFile(new Blob([pdfFundStatement(D, P)], { type: 'application/pdf' }), (fundCfg(D).who + '_account_' + P.label).replace(/[^A-Za-z0-9-]+/g, '_') + '.pdf');
+      noteAct('statement_pdf', P.label);
     }, 'fundpdf'));
 };
 function openHeld() {

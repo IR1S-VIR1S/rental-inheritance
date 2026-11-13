@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'b13b920a';
+var BUILD_ID = '98a3e940';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -173,7 +173,7 @@ function sync(quiet) {
     S.data = r.data; S.role = r.data.role; S.name = r.data.name; S.lastSync = Date.now(); S.syncErr = '';
     S.outbox = S.outbox.filter(function (x) { return !done[x.req_id]; });
     if (!S.modesSeeded) { seedModes(S); if (S.outbox.length) T.syncAgain = true; }
-    return saveState().then(function () { return snapshot(S); });
+    return saveState().then(function () { return snapshot(S); }).then(function () { return sendActs(S); });
   }).catch(function (e) {
     if (T.S !== S) return;
     S.outbox = S.outbox.filter(function (x) { return !done[x.req_id]; });
@@ -189,6 +189,20 @@ function sync(quiet) {
   });
   T.syncP = chain;
   return chain;
+}
+// Downloads by the others are noted for the custodian's Activity page, sent at the next sync.
+function noteAct(what, label) {
+  var S = T.S;
+  if (!S || T.preview || isCust()) return;
+  S.acts = (S.acts || []).concat([{ what: what, label: String(label || ''), at: new Date().toISOString() }]).slice(-50);
+  saveState().then(function () { if (navigator.onLine) sync(true); });
+}
+function sendActs(S) {
+  if (!S.acts || !S.acts.length || S.role === 'custodian') return null;
+  var list = S.acts.slice();
+  return api({ op: 'did', token: S.token, items: list }).then(function (r) {
+    if (r.ok || r.error === 'unknown operation') { S.acts = (S.acts || []).filter(function (x) { return list.indexOf(x) < 0; }); return saveState(); }
+  }).catch(function () { });
 }
 // The custodian's phone writes its worked-out summary into the workbook's SUMMARY tab when it changes.
 function snapshot(S) {
@@ -1178,7 +1192,7 @@ SCREENS.summary = function () {
       el('p', { class: 'hint', text: 'Split in sevenths as set under Heirs and shares in Settings.' }),
       isCust() && !R.closed ? btn('primary wide', 'plus', 'Record a Qurbani', function () { openQurbani(); }, 'recq') : null),
     el('h2', null, svg('doc'), 'Download'),
-    btn('primary wide', 'doc', 'Summary as PDF', function () { shareFile(new Blob([pdfSummary(R)], { type: 'application/pdf' }), 'Rental_Inheritance_Summary_' + R.fy + '.pdf'); }, 'pdfbtn'),
+    btn('primary wide', 'doc', 'Summary as PDF', function () { shareFile(new Blob([pdfSummary(R)], { type: 'application/pdf' }), 'Rental_Inheritance_Summary_' + R.fy + '.pdf'); noteAct('summary_pdf', R.fy); }, 'pdfbtn'),
     isCust() ? btn('wide', 'sheet', 'Full ledger as Excel', function () { shareFile(new Blob([xlsxLedger(D, R)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Rental_Inheritance_Ledger_' + todayPk() + '.xlsx'); }, 'xlsxbtn') : null);
 };
 function shareFile(blob, name) {
@@ -1328,6 +1342,7 @@ function glossaryTerms(D) {
     ['Using the app', 'Not accepted', 'The workbook refused an entry and says why. Fix it or remove it under Settings.'],
     ['Using the app', 'Same amount warning', 'Shown when an entry has the same date, amount and payee as one already there. Save anyway if it is genuine.'],
     ['Using the app', 'Audit trail', 'The workbook keeps every change with who, when, the old and the new value. Deleted entries are kept with the reason.'],
+    ['Using the app', 'Activity', 'Settings > Activity lists what the others have done: opening the app (once a day), setting it up, entries ' + (set.fund_keeper || 'the account keeper') + ' makes, photos opened and PDFs downloaded. Your own entries are left out. Only ' + c + ' sees it.'],
     ['Using the app', 'Invitation', 'A one-time message that lets a person set up the app on their phone. ' + c + ' makes it under Settings > People (or from the Sheet menu) and sends it by WhatsApp. It works for 7 days, for that person only; after first use it works again for 24 hours so the Home Screen copy can join, then never.'],
     ['Using the app', 'View as (debug mode)', 'For ' + c + ' only, under Settings. Shows the app exactly as another person\u2019s phone shows it: their tabs, buttons and data, cut the way the workbook cuts it for them. An amber bar says whose view it is. Anything tried there is never saved or sent; "Back to my view" brings your own view back unchanged.'],
     ['Using the app', 'View only', 'Heirs can see everything and download the summary, but only ' + c + ' can make entries.']
@@ -1389,7 +1404,7 @@ function exitPreview() {
 // Settings: a short list of groups; each opens its own page with a Back button. "Not accepted" stays pinned on top.
 var SET_GROUPS = [
   { k: 'year', icon: 'cal', cust: true }, { k: 'heirs', icon: 'users', cust: true }, { k: 'amounts', icon: 'gear', cust: true },
-  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'people', icon: 'users', cust: true }, { k: 'preview', icon: 'eye', cust: true }, { k: 'glossary', icon: 'book' }
+  { k: 'rates', icon: 'building', cust: true }, { k: 'lists', icon: 'list', cust: true }, { k: 'people', icon: 'users', cust: true }, { k: 'activity', icon: 'clock', cust: true }, { k: 'preview', icon: 'eye', cust: true }, { k: 'glossary', icon: 'book' }
 ];
 function setGroupInfo(k, D) {
   var fy = curFy(), set = settingsOf(D), closed = closedYears(D).indexOf(fy) >= 0;
@@ -1408,6 +1423,7 @@ function setGroupInfo(k, D) {
   }
   if (k === 'preview') return { title: 'View as (debug mode)', short: 'View as', tag: 'Debug', sub: 'See exactly what another person\u2019s phone shows. Nothing is saved or sent.' };
   if (k === 'people') return { title: 'People and invitations', short: 'People', tag: T.people ? T.people.length + ' joined' : 'Invite', sub: 'Invite an heir with a ready WhatsApp message, and see who has joined' };
+  if (k === 'activity') return { title: 'Activity of the others', short: 'Activity', tag: T.activity ? T.activity.length ? 'Latest ' + fmtDate(T.activity[0].time.slice(0, 10)) : 'Nothing yet' : 'Log', sub: 'What the others have done in the app, newest first. Your own entries are left out.' };
   if (k === 'glossary') return { title: 'Glossary', short: 'Glossary', tag: glossaryTerms(D).length + ' terms', sub: 'What each word in the app means' };
   if (k === 'lists') return { title: 'Lists', short: 'Lists', tag: 'Tags', sub: 'Sources, categories, banks and accounts' };
   return { title: 'This phone', short: 'This phone', tag: bioReady() ? 'Face ID' : 'PIN', sub: (bioReady() ? 'Face ID on' : 'PIN only') + ' · app ' + BUILD_ID };
@@ -1446,7 +1462,97 @@ SCREENS.settings = function () {
     el('h2', null, svg('faceid'), 'This phone'),
     SET_PAGES.phone());
 };
+function actTabLabel(tab) {
+  if (SCHEMA[tab]) return SCHEMA[tab].label;
+  return { ACCESS: 'Access', APP: 'App' }[tab] || tab;
+}
+function actFieldLabel(tab, f) {
+  if (f === 'extra') return 'Other details';
+  return SCHEMA[tab] && SCHEMA[tab].fields[f] ? SCHEMA[tab].fields[f].label : f;
+}
+function actValue(tab, f, v) {
+  if (v === '' || v === undefined || v === null) return 'blank';
+  if (f === 'extra') {
+    try {
+      var o = JSON.parse(v), parts = [];
+      Object.keys(o).forEach(function (k) {
+        var x = o[k];
+        if (k === 'skip') parts.push('skipped ' + [].concat(x).map(function (m) { return /^\d{4}-\d{2}$/.test(m) ? fmtMonth(m) : m; }).join(', '));
+        else if (x !== '' && x !== null && typeof x !== 'object') parts.push(k + ' ' + x);
+      });
+      return parts.join(', ') || 'blank';
+    } catch (e) { return String(v); }
+  }
+  var t = SCHEMA[tab] && SCHEMA[tab].fields[f] ? SCHEMA[tab].fields[f].t : '';
+  if ((t === 'amt' || t === 'samt' || t === 'int') && !isNaN(Number(v))) return groupNum_(Number(v));
+  if (t === 'date' && /^\d{4}-\d{2}-\d{2}/.test(v)) return fmtDate(String(v).slice(0, 10));
+  if (t === 'yn') return v === 'Y' ? 'Yes' : v === 'N' ? 'No' : v;
+  return String(v);
+}
+// One group per action: an entry saved with several fields is one line.
+function actGroups(rows) {
+  var out = [], idx = {};
+  rows.forEach(function (r) {
+    var k = [r.time, r.who, r.action, r.tab, r.id].join('|');
+    if (!idx[k]) { idx[k] = { time: r.time, who: r.who, action: r.action, tab: r.tab, id: r.id, reason: r.reason, lines: [] }; out.push(idx[k]); }
+    if (r.field && r.action !== 'delete' && r.action !== 'opened photo' && r.action !== 'photo') idx[k].lines.push(r);
+  });
+  return out;
+}
+function actSentence(g) {
+  var what = actTabLabel(g.tab) + (g.id && g.tab !== 'ACCESS' && g.tab !== 'APP' ? ' ' + g.id : '');
+  if (g.action === 'opened the app') return { icon: 'unlockic', text: 'Opened the app' };
+  if (g.action === 'joined') return { icon: 'users', text: 'Set up the app on a phone' };
+  if (g.action === 'joined again') return { icon: 'users', text: 'Set up the app again (the earlier copy was cut off)' };
+  if (g.action === 'add') return { icon: 'plus', text: 'Added ' + what };
+  if (g.action === 'edit') return { icon: 'edit', text: 'Changed ' + what };
+  if (g.action === 'delete') return { icon: 'trash', text: 'Deleted ' + what + (g.reason ? ': ' + g.reason : '') };
+  if (g.action === 'photo') return { icon: 'camera', text: 'Attached a photo to ' + what };
+  if (g.action === 'opened photo') return { icon: 'eye', text: 'Opened the photo of ' + what };
+  if (/^downloaded/.test(g.action)) return { icon: 'doc', text: g.action.charAt(0).toUpperCase() + g.action.slice(1) + (g.id ? ' (' + g.id + ')' : '') };
+  return { icon: 'list', text: g.action + ' ' + what };
+}
+function loadActivity(force) {
+  if (T.activityLoading || (!force && T.activityFor === T.S.token)) return;
+  T.activityLoading = true; T.activityErr = '';
+  setTimeout(function () {
+    api({ op: 'activity', token: T.S.token }).then(function (r) {
+      T.activityLoading = false; T.activityFor = T.S.token;
+      if (r.ok) T.activity = r.rows; else T.activityErr = r.error === 'unknown operation' ? 'Install update in the Sheet first (version 1.3): Rental Inheritance > Install update.' : r.error;
+      if (T.screen === 'settings' && T.setGroup === 'activity') softRender();
+    }).catch(function () { T.activityLoading = false; T.activityErr = 'No signal. Connect to see the activity.'; if (T.setGroup === 'activity') softRender(); });
+  }, 0);
+}
 var SET_PAGES = {
+  activity: function (D, set) {
+    loadActivity(false);
+    var rows = T.activity || [], who = T.actWho || '', names = [];
+    rows.forEach(function (r) { if (names.indexOf(r.who) < 0) names.push(r.who); });
+    names.sort();
+    var groups = actGroups(rows.filter(function (r) { return !who || r.who === who; })), day = '', list = [];
+    groups.forEach(function (g) {
+      var d = String(g.time).slice(0, 10);
+      if (d !== day) { day = d; list.push(el('div', { class: 'dayhead', text: d === todayPk() ? 'Today' : fmtDate(d) })); }
+      var s = actSentence(g);
+      list.push(el('div', { class: 'row actrow', 'data-who': g.who },
+        el('span', { class: 'rowic' }, svg(s.icon)),
+        el('div', { class: 'grow' },
+          el('div', null, el('b', { text: g.who }), document.createTextNode(' ' + s.text.charAt(0).toLowerCase() + s.text.slice(1))),
+          g.lines.slice(0, 6).map(function (l) {
+            return el('div', { class: 'sm', text: actFieldLabel(g.tab, l.field) + ': ' + (g.action === 'edit' ? actValue(g.tab, l.field, l.old) + ' \u2192 ' : '') + actValue(g.tab, l.field, l.new) });
+          }),
+          g.lines.length > 6 ? el('div', { class: 'sm', text: (g.lines.length - 6) + ' more' }) : null,
+          g.action === 'edit' && g.reason ? el('div', { class: 'sm', text: 'Reason: ' + g.reason }) : null),
+        el('div', { class: 'sm acttime', text: String(g.time).slice(11, 16) })));
+    });
+    return [
+      el('p', { class: 'hint' }, 'Only you see this page.', qm('Activity')),
+      names.length > 1 ? chips(['All'].concat(names), who || 'All', function (x) { T.actWho = x === 'All' ? '' : x; softRender(); }, 'actchips') : null,
+      el('div', { class: 'card list', id: 'actlist' }, T.activity ? (list.length ? list : el('p', { class: 'muted', text: 'Nothing yet. Activity appears here once the others open the app.' })) : el('p', { class: 'muted', text: T.activityErr || 'Loading' })),
+      btn('wide', 'sync', 'Refresh', function () { if (T.preview) { toast('Viewing as someone else: nothing is sent.'); return; } loadActivity(true); softRender(); }, 'actrefresh'),
+      el('p', { class: 'hint', text: 'The latest 400 changes. The full record, with your own entries too, is the AUDIT tab in the Sheet.' })
+    ];
+  },
   preview: function (D, set) {
     var cust = set.custodian || '', k = String(set.fund_keeper || '').trim();
     return [

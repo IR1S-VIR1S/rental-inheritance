@@ -5,8 +5,8 @@
  * and sends the ledger to the phones. Every calculation lives in the phone app.
  * Pure ASCII only (the update code is a SHA-256 of this file).
  */
-var VERSION = '1.2.1';
-var RELEASE_NOTE = '1.2.1: after an update the message says nothing else is needed (the deployment and phone steps show only on a new workbook). ' +
+var VERSION = '1.3';
+var RELEASE_NOTE = '1.3: Activity in Settings shows what the others do (opening the app, entries, photos, PDF downloads). Before that, 1.2.1: after an update the message says nothing else is needed (the deployment and phone steps show only on a new workbook). ' +
   '1.2: invitations made from the custodian\'s phone (Settings > People) with a ready message of instructions to send by WhatsApp; the Sheet menu shows the same message; the custodian\'s phone lists who has joined. Nothing removed. ' +
   '1.1: an heir\'s account kept by another heir (expenses, other money in, repeating charges, money held). The keeper\'s phone can write only those three tabs; the custodian can view them; other heirs never receive them. Adds tabs AF_EXP, AF_IN, AF_RECUR, AF_HELD and settings fund_for and fund_keeper. Nothing removed. ' +
   '1.0: first version. Ledger tabs for income, outflows, payments to heirs, TBZ months, money back to fund and opening balances; ' +
@@ -533,6 +533,7 @@ function api_(b) {
   if (b.op === 'hello') return { ok: true, role: who.role, name: who.name, version: VERSION };
   if (b.op === 'pull') return pull_(who, b.token);
   if (b.op === 'file') return getFile_(b, who);
+  if (b.op === 'did') return did_(b, who);
   var keeper = who.role !== 'custodian' && isKeeper_(who);
   if (who.role !== 'custodian' && !keeper) return { ok: false, code: 403, error: 'This phone can view only.' };
   if (b.op === 'push') return push_(b.items || [], who, keeper);
@@ -541,6 +542,7 @@ function api_(b) {
   if (b.op === 'upload') return upload_(b, who, keeper);
   if (keeper) return { ok: false, code: 403, error: 'This phone can enter only the account it keeps.' };
   if (b.op === 'snapshot') return snapshot_(b);
+  if (b.op === 'activity') return { ok: true, rows: activity_(who) };
   return { ok: false, code: 400, error: 'unknown operation' };
 }
 function join_(b) {
@@ -571,7 +573,10 @@ function pull_(who, token) {
   Object.keys(SCHEMA).forEach(function (t) { D.tables[t] = AF_TABS.indexOf(t) >= 0 && !seesAF ? [] : readRows_(t).map(function (r) { return clean_(t, r); }); });
   D.files = readRows_('FILES').filter(function (f) { return seesAF || AF_TABS.indexOf(String(f.tab)) < 0; }).map(function (f) { return { file_id: f.file_id, tab: f.tab, ref_id: String(f.ref_id), name: f.name, bytes: +f.bytes }; });
   var p = PropertiesService.getScriptProperties(), k = 'APP_' + sha_(token), raw = p.getProperty(k);
-  if (raw) { var v = JSON.parse(raw), d = today_(); if (v.seen !== d) { v.seen = d; p.setProperty(k, JSON.stringify(v)); } }
+  if (raw) {
+    var v = JSON.parse(raw), d = today_();
+    if (v.seen !== d) { v.seen = d; p.setProperty(k, JSON.stringify(v)); if (who.role !== 'custodian') quietAudit_([{ who: who.name, role: who.role, action: 'opened the app', tab: 'ACCESS', id: who.name }]); }
+  }
   return { ok: true, data: D };
 }
 
@@ -698,6 +703,7 @@ function getFile_(b, who) {
   if (!f) return { ok: false, error: 'Photo not found.' };
   if (AF_TABS.indexOf(String(f.tab)) >= 0 && who && who.role !== 'custodian' && !isKeeper_(who)) return { ok: false, code: 403, error: 'Photo not found.' };
   var blob = DriveApp.getFileById(f.drive_id).getBlob();
+  if (who && who.role !== 'custodian') quietAudit_([{ who: who.name, role: who.role, action: 'opened photo', tab: String(f.tab), id: String(f.ref_id), field: 'photo', new: String(f.name) }]);
   return { ok: true, mime: f.mime, b64: Utilities.base64Encode(blob.getBytes()) };
 }
 
@@ -713,6 +719,32 @@ function apiInvite_(b, who) {
     if (!inv) return { ok: false, error: 'The web app address is not saved yet. In the Sheet use "Change web app address" once.' };
     return { ok: true, name: name, link: inv.link, line: inv.line, text: inv.text };
   } finally { lock.releaseLock(); }
+}
+// Activity of everyone except the custodian, newest first (custodian only).
+var DID_ACTIONS = { summary_pdf: 'downloaded the summary PDF', statement_pdf: 'downloaded the account statement PDF' };
+function quietAudit_(rows) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try { audit_(rows); } catch (e) { } finally { lock.releaseLock(); }
+}
+function did_(b, who) {
+  var list = (Array.isArray(b.items) ? b.items : []).slice(0, 50).filter(function (x) { return x && DID_ACTIONS[x.what]; });
+  if (list.length && who.role !== 'custodian') quietAudit_(list.map(function (x) {
+    return { who: who.name, role: who.role, action: DID_ACTIONS[x.what], tab: 'APP', id: String(x.label || '').slice(0, 40), reason: x.at ? 'on the phone at ' + String(x.at).slice(0, 19) : '' };
+  }));
+  return { ok: true, count: list.length };
+}
+function activity_(who) {
+  var me = String(who.name || '').toLowerCase(), cust = String(settings_().custodian || '').toLowerCase(), out = [];
+  var rows = readRows_('AUDIT');
+  for (var i = rows.length - 1; i >= 0 && out.length < 400; i--) {
+    var r = rows[i], w = String(r.who || '').toLowerCase(), role = String(r.role || '');
+    if (role === 'custodian' || role === 'owner' || w === me || (cust && w === cust)) continue;
+    var o = {};
+    ['time', 'who', 'role', 'action', 'tab', 'id', 'field', 'old', 'new', 'reason'].forEach(function (k) { var v = r[k] instanceof Date ? Utilities.formatDate(r[k], 'Asia/Karachi', 'yyyy-MM-dd HH:mm:ss') : String(r[k] === undefined ? '' : r[k]); o[k] = v.length > 160 ? v.slice(0, 157) + '...' : v; });
+    out.push(o);
+  }
+  return out;
 }
 // Who has joined (names only; no codes or tokens leave the workbook).
 function people_() {
