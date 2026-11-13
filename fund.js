@@ -3,32 +3,19 @@
 'use strict';
 var FUND_CATS = ['Electricity bill', 'Gas bill', 'Water bill', 'Groceries', 'Medicines', 'Doctor and tests', 'Travel', 'Kaam wali wages',
   'Mobile and internet', 'Clothes', 'House repairs', 'Gifts and Eid', 'Meat', 'Fish', 'Milk', 'Other'];
-// Bought by the order: each order is entered on its own with the amount on the bill, and a photo of the bill.
-// An entry without a bill photo stays on "Bills to add" (for the keeper and the custodian) until the photo is added.
+// Bought by the order: each order is entered on its own. A round amount gets one friendly question before saving
+// (type the exact amount, or keep it as remembered); nothing is flagged afterwards.
 var BILL_RE = /meat|fish|milk|mutton|beef|chicken|gosht|machli|doodh/i;
 function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
 function isBillCat(c) { return BILL_RE.test(String(c || '')); }
-function hasPhoto(D, tab, r) { var ref = r.id || r.key; return D.files.some(function (f) { return f.tab === tab && (f.ref_id === ref || (r.key && f.ref_id === r.key)); }); }
-function billChecks(D, today) {
-  var from = monthsBack(today.slice(0, 7), 2) + '-01', out = [], rows = D.tables.AF_EXP || [];
-  rows.filter(function (r) { return isBillCat(r.category) && r.date >= from && r.date <= today; }).forEach(function (r) {
-    if (hasPhoto(D, 'AF_EXP', r)) return;
-    var why = ['no bill photo'], a = Number(r.amount) || 0;
-    if (a >= 1000 && a % 1000 === 0) why.push('round figure');
-    if (/month|monthly|whole|approx|about|estimate|andaz/i.test(String(r.details) + ' ' + String(r.note || ''))) why.push('reads like a monthly guess');
-    var prev = rows.filter(function (x) { return x !== r && x.category === r.category && x.date < r.date; }).sort(function (x, y) { return x.date < y.date ? 1 : -1; })[0];
-    if (prev && Number(prev.amount) === a) why.push('same amount as the order before');
-    out.push({ r: r, why: why });
-  });
-  return out.sort(function (a, b) { return a.r.date < b.r.date ? 1 : -1; });
-}
-// Orders and bills per bill category for a period: { Meat: { n: 4, bills: 3, amt: 9600 }, ... }
+function isRound(a) { a = Number(a) || 0; return a >= 1000 && a % 500 === 0; }
+// Orders per bill category for a period: { Meat: { n: 4, amt: 9600 }, ... }
 function billSummary(D, from, to) {
   var o = {};
   (D.tables.AF_EXP || []).forEach(function (r) {
     if (!isBillCat(r.category) || (from && r.date < from) || (to && r.date > to)) return;
-    var k = r.category, x = o[k] || (o[k] = { n: 0, bills: 0, amt: 0 });
-    x.n++; x.amt += Number(r.amount) || 0; if (hasPhoto(D, 'AF_EXP', r)) x.bills++;
+    var k = r.category, x = o[k] || (o[k] = { n: 0, amt: 0 });
+    x.n++; x.amt += Number(r.amount) || 0;
   });
   return o;
 }
@@ -85,23 +72,14 @@ function recurDue(D, today) {
 }
 
 // ---------- the tab ----------
-function billCard(D, P, keep) {
-  var B = billChecks(D, todayPk()), Sm = billSummary(D, P.from, P.to), cats = Object.keys(Sm);
-  if (!B.length && !cats.length) return null;
-  return el('div', { id: 'billcheck' }, el('h2', null, svg('doc'), B.length ? 'Bills to add (' + B.length + ')' : 'Meat, fish and milk', qm(['Bill check', 'Bills to add'])),
-    cats.length ? el('div', { class: 'card' }, el('div', { class: 'kv', id: 'billsum' }, cats.map(function (k) {
+function billCard(D, P) {
+  var Sm = billSummary(D, P.from, P.to), cats = Object.keys(Sm);
+  if (!cats.length) return null;
+  return el('div', { id: 'billcheck' }, el('h2', null, svg('doc'), 'Meat, fish and milk', qm('Order by order')),
+    el('div', { class: 'card' }, el('div', { class: 'kv', id: 'billsum' }, cats.map(function (k) {
       var x = Sm[k];
-      return [el('div', { text: k + ', ' + P.label }), el('div', { text: plural(x.n, 'order') + ', ' + x.bills + ' with bill · ' + groupNum_(x.amt) })];
-    }))) : null,
-    B.length ? el('div', { class: 'card list', id: 'billlist' }, B.map(function (x) {
-      var r = x.r;
-      return el('button', { class: 'row', type: 'button', 'data-bill': r.id || r.key, onclick: function () { openEntry('AF_EXP', r); } },
-        el('span', { class: 'rowic' }, svg('alert')),
-        el('div', { class: 'grow' }, el('div', { text: r.category + ': ' + r.details }),
-          el('div', { class: 'sm', text: fmtDate(r.date) + ' · ' + x.why.join(', ') })),
-        el('div', { class: 'amt', text: groupNum_(r.amount) }));
-    })) : null,
-    B.length ? el('p', { class: 'hint', text: keep ? 'Tap an order and add a photo of its bill. If the amount was a guess, correct it to the bill first.' : 'Only ' + fundCfg(D).keeper + ' can add the bills. These clear by themselves when he does.' }) : null);
+      return [el('div', { text: k + ', ' + P.label }), el('div', { text: plural(x.n, 'order') + ' · ' + groupNum_(x.amt) })];
+    }))));
 }
 function fundPeriod() {
   var t = todayPk(), cur = t.slice(0, 7), p = T.fundPeriod || 'month';
@@ -124,7 +102,7 @@ SCREENS.fund = function () {
         el('div', { class: 'sm', text: F.held === null ? 'Not entered yet' : fmtRs(F.held) + (F.heldDate ? ' on ' + fmtDate(F.heldDate) : '') })),
         F.diff === null ? null : el('span', { class: 'chip ' + (F.diff === 0 ? 'ok' : 'due') }, F.diff === 0 ? 'Matches' : 'Off by ' + groupNum_(F.diff))),
       keep ? btn('wide', 'edit', 'Enter money held', openHeld, 'heldbtn') : null),
-    billCard(D, P, keep),
+    billCard(D, P),
     F.due.length ? el('div', { id: 'funddue' }, el('h2', null, svg('clock'), 'Repeating charges due', qm(['Repeating charge', 'Due and skip'])),
       el('div', { class: 'card list' }, F.due.map(function (x) {
         return el('div', { class: 'row', 'data-due': x.r.id || x.r.key },
@@ -233,7 +211,8 @@ SCREENS.fundexp = function () {
   var catInput = el('input', { id: 'fe-cat', autocomplete: 'off', value: P.category, placeholder: 'Or type what it was for', oninput: function (e) { P.category = e.target.value; } });
   var modeInput = el('input', { id: 'fe-mode', autocomplete: 'off', value: P.mode, placeholder: 'Or type another bank or account', oninput: function (e) { P.mode = e.target.value; } });
   var hint = el('div', { class: 'hint', id: 'fe-amount-hint', text: Number(P.amount) ? fmtRs(Number(P.amount)) : '' });
-  function save() {
+  var ask = el('div', { class: 'note hidden', id: 'fe-round' });
+  function save(asIs) {
     var rec = { date: P.date, category: String(P.category || '').trim(), details: String(P.details || '').trim(), paid_to: String(P.paid_to || '').trim(),
       amount: String(P.amount || ''), mode: String(P.mode || '').trim(), recur_id: P.recur_id || '', note: String(P.note || '').trim() };
     if (F.orig && F.orig.id) rec.id = F.orig.id;
@@ -243,18 +222,27 @@ SCREENS.fundexp = function () {
     var fy = isYmd_(rec.date) ? fyOfMonth_(rec.date.slice(0, 7)) : '';
     if (!e && fy && closedYears(D).indexOf(fy) >= 0) e = fy + ' is closed.';
     if (e) { err.textContent = e; return; }
+    if (!asIs && isBillCat(rec.category) && isRound(rec.amount)) {
+      err.textContent = '';
+      ask.replaceChildren(el('div', { text: fmtRs(Number(rec.amount)) + ' is a round figure. If you have the bill, type the exact amount.' }),
+        el('div', { class: 'actions2' },
+          btn('primary', 'edit', 'Type exact amount', function () { ask.classList.add('hidden'); var a = document.getElementById('fe-amount'); a.focus(); a.select(); }, 'fe-exact'),
+          btn('', 'check', 'From memory, save', function () { save(true); }, 'fe-asis')));
+      ask.classList.remove('hidden'); ask.scrollIntoView({ block: 'center' });
+      return;
+    }
     var S2 = T.S, req;
     if (F.orig && !F.orig.id) { var q = S2.outbox.filter(function (o) { return o.req_id === F.orig.key; })[0]; if (q) { q.rec = rec; q.error = ''; req = q.req_id; } }
     else { req = uuid(); if (rec.id) S2.outbox = S2.outbox.filter(function (o) { return !(o.op === 'save' && o.rec.id === rec.id && o.error); }); S2.outbox.push({ op: 'save', tab: 'AF_EXP', req_id: req, rec: rec }); }
     var photos = F.photos; T.form = null;
     addPhotos('AF_EXP', rec.id || req, photos).then(function () { return saveState(); })
-      .then(function () { go('fund'); toast('Saved: ' + fmtRs(Number(rec.amount)) + ' for ' + rec.category + '.' + (isBillCat(rec.category) && !photos.length ? ' Add the bill photo to clear it.' : ''), true); sync(true); });
+      .then(function () { go('fund'); toast('Saved: ' + fmtRs(Number(rec.amount)) + ' for ' + rec.category + '.', true); sync(true); });
   }
   return el('div', null, backBar(F.orig ? 'Edit expense' : 'Expense for ' + c.who, 'fund'),
     el('p', { class: 'muted' }, 'Paid by ' + c.keeper + ' out of the money given to him for ' + c.who + '.', qm(fundTitle(D))),
     el('label', { class: 'f', text: 'What was it for?' }),
     chips(fundCats(D), P.category, function (x) { var was = isBillCat(P.category); P.category = x; catInput.value = x; if (was !== isBillCat(x)) render(); }, 'fe-cat-chips'), catInput,
-    isBillCat(P.category) ? el('div', { class: 'note', id: 'fe-billnote' }, 'One order at a time, with the amount on the bill, not a guess for the month. Add a photo of the bill below; without it the order shows under Bills to add.', qm('Bill check')) : null,
+    isBillCat(P.category) ? el('div', { class: 'note', id: 'fe-billnote' }, 'One order at a time, with the amount on the bill if you have it.', qm('Order by order')) : null,
     el('label', { class: 'f', for: 'fe-details', text: isBillCat(P.category) ? 'What was ordered' : 'Details' }),
     el('textarea', { id: 'fe-details', maxlength: '300', placeholder: isBillCat(P.category) ? 'For example: 2 kg mutton from the butcher; 30 litres milk, 1 to 15 Nov' : 'For example: LESCO bill for November; medicines from Fazal Din', oninput: function (e) { P.details = e.target.value; } }, P.details),
     el('label', { class: 'f', for: 'fe-amount', text: isBillCat(P.category) ? 'Amount on the bill (Rs)' : 'Amount (Rs)' }),
@@ -269,7 +257,7 @@ SCREENS.fundexp = function () {
     el('label', { class: 'f', for: 'fe-note', text: 'Note (optional)' }),
     el('textarea', { id: 'fe-note', maxlength: '500', oninput: function (e) { P.note = e.target.value; } }, P.note),
     F.orig ? null : pickPhotosField(F),
-    btn('primary wide', 'check', 'Save', save, 'fesave'), err);
+    ask, btn('primary wide', 'check', 'Save', function () { save(false); }, 'fesave'), err);
 };
 
 // ---------- statement PDF ----------
