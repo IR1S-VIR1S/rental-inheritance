@@ -5,8 +5,8 @@
  * and sends the ledger to the phones. Every calculation lives in the phone app.
  * Pure ASCII only (the update code is a SHA-256 of this file).
  */
-var VERSION = '1.3';
-var RELEASE_NOTE = '1.3: Activity in Settings shows what the others do (opening the app, entries, photos, PDF downloads). Before that, 1.2.1: after an update the message says nothing else is needed (the deployment and phone steps show only on a new workbook). ' +
+var VERSION = '1.4';
+var RELEASE_NOTE = '1.4: updates now install themselves when the phone app asks (no visit to the Sheet); the earlier version is kept for Undo. Before that, 1.3: Activity in Settings shows what the others do (opening the app, entries, photos, PDF downloads). Before that, 1.2.1: after an update the message says nothing else is needed (the deployment and phone steps show only on a new workbook). ' +
   '1.2: invitations made from the custodian\'s phone (Settings > People) with a ready message of instructions to send by WhatsApp; the Sheet menu shows the same message; the custodian\'s phone lists who has joined. Nothing removed. ' +
   '1.1: an heir\'s account kept by another heir (expenses, other money in, repeating charges, money held). The keeper\'s phone can write only those three tabs; the custodian can view them; other heirs never receive them. Adds tabs AF_EXP, AF_IN, AF_RECUR, AF_HELD and settings fund_for and fund_keeper. Nothing removed. ' +
   '1.0: first version. Ledger tabs for income, outflows, payments to heirs, TBZ months, money back to fund and opening balances; ' +
@@ -383,7 +383,7 @@ function keeperOf_(set) { return String(set.fund_keeper || '').trim().toLowerCas
 function isKeeper_(who, set) { var k = keeperOf_(set || settings_()); return !!k && String(who.name || '').trim().toLowerCase() === k; }
 
 // ---------- menu actions ----------
-function setup() {
+function setupCore_() {
   Object.keys(SCHEMA).concat(Object.keys(SUPPORT)).forEach(function (t) { sheet_(t); });
   var ss = SpreadsheetApp.getActiveSpreadsheet(), s1 = ss.getSheetByName('Sheet1');
   if (s1 && s1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(s1);
@@ -396,6 +396,10 @@ function setup() {
   addMissingSettings_();
   p.setProperty('SCHEMA_VER', String(CFG.SCHEMA_VER));
   log_('setup', 'version ' + VERSION);
+}
+function setup() {
+  setupCore_();
+  var p = PropertiesService.getScriptProperties();
   // First time only: the deployment and phone steps. After an update nothing else is needed (the Loader keeps the same web app address).
   var firstTime = !p.getProperty('WEBAPP_URL') && !tokens_().length;
   SpreadsheetApp.getUi().alert(firstTime
@@ -541,6 +545,7 @@ function api_(b) {
   if (b.op === 'people' && !keeper) return { ok: true, people: people_() };
   if (b.op === 'upload') return upload_(b, who, keeper);
   if (keeper) return { ok: false, code: 403, error: 'This phone can enter only the account it keeps.' };
+  if (b.op === 'selfupdate') return selfUpdate_(who.name);
   if (b.op === 'snapshot') return snapshot_(b);
   if (b.op === 'activity') return { ok: true, rows: activity_(who) };
   return { ok: false, code: 400, error: 'unknown operation' };
@@ -753,11 +758,54 @@ function people_() {
     .sort(function (a, b) { return a.name < b.name ? -1 : 1; });
 }
 
-// Everything the loader may call.
+
+// ---------- updates that install themselves (asked for by the owner's phone; no visit to the Sheet) ----------
+var SELF_URL = 'https://raw.githubusercontent.com/IR1S-VIR1S/rental-inheritance/main/script/RentalInheritance.gs';
+function verNum_(v) { var p = String(v || '').split('.'); return (+p[0] || 0) * 1e6 + (+p[1] || 0) * 1e3 + (+p[2] || 0); }
+function selfCode_(p, prefix) { var n = +p.getProperty(prefix + 'N') || 0, s = ''; for (var i = 0; i < n; i++) s += p.getProperty(prefix + i) || ''; return s; }
+function selfWrite_(p, prefix, code) {
+  var old = +p.getProperty(prefix + 'N') || 0, n = Math.ceil(code.length / 7000), all = {};
+  for (var i = 0; i < n; i++) all[prefix + i] = code.slice(i * 7000, (i + 1) * 7000);
+  all[prefix + 'N'] = String(n);
+  p.setProperties(all);
+  for (var j = n; j < old; j++) p.deleteProperty(prefix + j);
+}
+function selfUpdate_(by) {
+  var p = PropertiesService.getScriptProperties();
+  if (!p.getProperty('CODE_N')) return { ok: false, error: 'This workbook was not installed with the Loader, so it cannot update itself.' };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, error: 'The workbook is busy. It will try again.' };
+  try {
+    var r;
+    try { r = UrlFetchApp.fetch(SELF_URL + '?t=' + Date.now(), { muteHttpExceptions: true, followRedirects: true }); }
+    catch (e) { return { ok: false, error: 'Could not reach GitHub. Nothing was changed.' }; }
+    if (r.getResponseCode() !== 200) return { ok: false, error: 'Could not download the update (GitHub said ' + r.getResponseCode() + '). Nothing was changed.' };
+    var code = r.getContentText(), x;
+    try {
+      x = (new Function(code + '\n;return exports_();'))();
+      ['setup', 'setupQuiet', 'doPost', 'doGet', 'MENU_ITEMS', 'VERSION'].forEach(function (k) { if (!x || x[k] === undefined) throw new Error('missing ' + k); });
+    } catch (e2) { return { ok: false, error: 'The published update is broken (' + e2.message + '). Nothing was changed.' }; }
+    if (verNum_(x.VERSION) <= verNum_(VERSION)) return { ok: true, updated: false, version: VERSION };
+    var cur = selfCode_(p, 'CODE_'), curSha = p.getProperty('CODE_SHA') || '', curMenu = p.getProperty('MENU_JSON') || '[]';
+    selfWrite_(p, 'CODE_', code);
+    p.setProperty('CODE_SHA', sha_(code).slice(0, 8));
+    p.setProperty('MENU_JSON', JSON.stringify(x.MENU_ITEMS.map(function (m) { return m.label; })));
+    try { x.setupQuiet(); }
+    catch (e3) {
+      selfWrite_(p, 'CODE_', cur); p.setProperty('CODE_SHA', curSha); p.setProperty('MENU_JSON', curMenu);
+      log_('self update failed, put back', VERSION + ' kept: ' + String(e3 && e3.message || e3));
+      return { ok: false, error: 'The update could not be set up, so version ' + VERSION + ' was kept.' };
+    }
+    selfWrite_(p, 'PREV_', cur); p.setProperty('PREV_SHA', curSha);
+    log_('updated itself', VERSION + ' to ' + x.VERSION + (by ? ', asked by ' + by : ''));
+    return { ok: true, updated: true, from: VERSION, version: x.VERSION };
+  } finally { lock.releaseLock(); }
+}
+
 function exports_() {
   return {
     VERSION: VERSION, RELEASE_NOTE: RELEASE_NOTE, MENU_ITEMS: MENU_ITEMS,
-    setup: setup, inviteCustodian: inviteCustodian, inviteHeir: inviteHeir, whoHasAccess: whoHasAccess,
+    setup: setup, setupQuiet: setupCore_, inviteCustodian: inviteCustodian, inviteHeir: inviteHeir, whoHasAccess: whoHasAccess,
     removePerson: removePerson, changeWebAppUrl: changeWebAppUrl, checkAudit: checkAudit, doPost: doPost, doGet: doGet
   };
 }

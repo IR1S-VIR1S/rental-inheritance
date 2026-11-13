@@ -159,3 +159,5 @@ function inviteText_(name, link, line, opts) {
   return t;
 }
 
+
+var NEED_SCRIPT = '1.4';

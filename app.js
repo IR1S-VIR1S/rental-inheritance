@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '98a3e940';
+var BUILD_ID = '0ee74663';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -173,7 +173,7 @@ function sync(quiet) {
     S.data = r.data; S.role = r.data.role; S.name = r.data.name; S.lastSync = Date.now(); S.syncErr = '';
     S.outbox = S.outbox.filter(function (x) { return !done[x.req_id]; });
     if (!S.modesSeeded) { seedModes(S); if (S.outbox.length) T.syncAgain = true; }
-    return saveState().then(function () { return snapshot(S); }).then(function () { return sendActs(S); });
+    return saveState().then(function () { return snapshot(S); }).then(function () { return sendActs(S); }).then(function () { return autoScript(S); });
   }).catch(function (e) {
     if (T.S !== S) return;
     S.outbox = S.outbox.filter(function (x) { return !done[x.req_id]; });
@@ -189,6 +189,21 @@ function sync(quiet) {
   });
   T.syncP = chain;
   return chain;
+}
+// ---------- the workbook script updates itself when this app is newer than it ----------
+function verNum(v) { var p = String(v || '').split('.'); return (+p[0] || 0) * 1e6 + (+p[1] || 0) * 1e3 + (+p[2] || 0); }
+function autoScript(S) {
+  if (typeof NEED_SCRIPT === 'undefined' || !S.data || S.role !== 'custodian' || T.preview) return null;
+  if (verNum(S.data.version) >= verNum(NEED_SCRIPT)) { if (S.updNote) { S.updNote = ''; return saveState(); } return null; }
+  if (S.updTry && S.updTry.need === NEED_SCRIPT && Date.now() - S.updTry.at < 10 * 60 * 1000) return null;
+  S.updTry = { need: NEED_SCRIPT, at: Date.now() };
+  return api({ op: 'selfupdate', token: S.token }).then(function (r) {
+    if (r.ok && r.updated) { S.updNote = ''; T.syncAgain = true; toast('Workbook updated to version ' + r.version + '.', true); }
+    else if (r.error === 'unknown operation') S.updNote = 'One last update by hand: in the Sheet use Rental Inheritance > Install update. After that the workbook updates itself.';
+    else if (!r.ok) S.updNote = r.error || 'The workbook could not update itself. It will try again.';
+    else S.updNote = 'The workbook update (version ' + NEED_SCRIPT + ') is on its way. It installs by itself within a few minutes.';
+    return saveState();
+  }).catch(function () { });
 }
 // Downloads by the others are noted for the custodian's Activity page, sent at the next sync.
 function noteAct(what, label) {
@@ -1453,6 +1468,7 @@ SCREENS.settings = function () {
             }) : null,
             btn('danger small', 'trash', 'Remove', function () { S.outbox = S.outbox.filter(function (x) { return x !== o; }); S.uploads = S.uploads.filter(function (x) { return x !== o; }); saveState().then(render); })));
       })) : null,
+    cust && S.updNote ? el('div', { class: 'note', id: 'updnote', text: S.updNote }) : null,
     cust ? null : el('div', { class: 'note', text: 'You can view the ledger and download the summary. Only ' + (set.custodian || 'the custodian') + ' can make entries.' + (isKeeperPhone() ? ' You keep ' + fundTitle(D) + ': enter its expenses on the ' + fundCfg(D).who + ' tab.' : '') }),
     el('div', { class: 'tiles three', id: 'setgroups' }, SET_GROUPS.filter(function (g) { return cust || !g.cust; }).map(function (g) {
       var info = setGroupInfo(g.k, D);
