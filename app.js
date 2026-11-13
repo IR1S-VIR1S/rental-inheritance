@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = 'ca28178a';
+var BUILD_ID = '0a5596a6';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -525,6 +525,7 @@ function stripChips(R) {
   if (t1) out.push(el('button', { class: 'schip t1', type: 'button', id: 'chip-t1', onclick: function () { scrollToId('checks'); } }, svg('alert'), t1 + ' to fix'));
   if (t2) out.push(el('button', { class: 'schip t2', type: 'button', id: 'chip-t2', onclick: function () { T.fold.checks = true; render(); scrollToId('checks'); } }, svg('alert'), t2 + ' to check'));
   if (typeof canSeeFund === 'function' && canSeeFund()) { var fd = recurDue(view(), todayPk()).filter(function (x) { return x.status !== 'coming'; }).length; if (fd) out.push(el('button', { class: 'schip ' + (isKeeperPhone() ? 't2' : 't3'), type: 'button', id: 'chip-funddue', onclick: function () { T.fundFrom = 'home'; go('fund'); } }, svg('clock'), fd + ' due for ' + fundCfg(T.S.data).who)); }
+  if (typeof canSeeFund === 'function' && canSeeFund()) { var bc = billChecks(view(), todayPk()).length; if (bc) out.push(el('button', { class: 'schip t2', type: 'button', id: 'chip-bills', onclick: function () { T.fundFrom = 'home'; go('fund'); setTimeout(function () { scrollToId('billcheck'); }, 50); } }, svg('doc'), bc + ' bill' + (bc > 1 ? 's' : '') + ' to add for ' + fundCfg(T.S.data).who)); }
   if (waiting) out.push(el('button', { class: 'schip t3', type: 'button', id: 'chip-wait', onclick: function () { sync(); } }, svg('wait'), waiting + ' waiting to send'));
   return out.length ? el('div', { class: 'strip', id: 'strip' }, out) : null;
 }
@@ -1375,7 +1376,9 @@ function glossaryTerms(D) {
       [g, 'Repeating charge', 'A charge that comes every month, such as electricity, groceries or kaam wali wages. ' + k + ' sets it once with its usual amount and the day it is due.'],
       [g, 'Due and skip', 'A repeating charge shows as due from its day each month until it is marked Paid (amount can be changed) or Skipped for that month. Unpaid from last month shows as overdue.'],
       [g, 'Account statement', 'A PDF of ' + w + '\u2019s account for this month, last month, this year or all time: balance at the start, money given, each expense, spending by what for, and the balance at the end.'],
-      [g, 'Account keeper', 'The heir who keeps the account, set under Settings > Amounts and roles. Only that heir\u2019s phone can enter its expenses.']
+      [g, 'Account keeper', 'The heir who keeps the account, set under Settings > Amounts and roles. Only that heir\u2019s phone can enter its expenses.'],
+      [g, 'Bill check', 'Meat, fish and milk are entered one order at a time with the amount on the bill, and a photo of the bill. That way the monthly totals are what was actually paid, not a guess. Using the usual amount is not allowed for them: the amount always starts empty.'],
+      [g, 'Bills to add', 'Meat, fish and milk orders of the last three months that have no bill photo yet. Each says why it was picked: no bill photo, and if so a round figure, the same amount as the order before, or words like "month" or "about" that suggest a guess. It clears by itself when ' + k + ' adds the photo. ' + k + ' and the custodian both see it.']
     ];
   })() : []).map(function (x) { return { g: x[0], t: x[1], d: x[2] }; });
 }
