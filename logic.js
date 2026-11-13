@@ -160,4 +160,4 @@ function inviteText_(name, link, line, opts) {
 }
 
 
-var NEED_SCRIPT = '1.4';
+var NEED_SCRIPT = '1.5';

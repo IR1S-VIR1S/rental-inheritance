@@ -5,8 +5,8 @@
  * and sends the ledger to the phones. Every calculation lives in the phone app.
  * Pure ASCII only (the update code is a SHA-256 of this file).
  */
-var VERSION = '1.4';
-var RELEASE_NOTE = '1.4: updates now install themselves when the phone app asks (no visit to the Sheet); the earlier version is kept for Undo. Before that, 1.3: Activity in Settings shows what the others do (opening the app, entries, photos, PDF downloads). Before that, 1.2.1: after an update the message says nothing else is needed (the deployment and phone steps show only on a new workbook). ' +
+var VERSION = '1.5';
+var RELEASE_NOTE = '1.5: Activity also shows when someone downloads the all years summary. Before that, 1.4: updates now install themselves when the phone app asks (no visit to the Sheet); the earlier version is kept for Undo. Before that, 1.3: Activity in Settings shows what the others do (opening the app, entries, photos, PDF downloads). Before that, 1.2.1: after an update the message says nothing else is needed (the deployment and phone steps show only on a new workbook). ' +
   '1.2: invitations made from the custodian\'s phone (Settings > People) with a ready message of instructions to send by WhatsApp; the Sheet menu shows the same message; the custodian\'s phone lists who has joined. Nothing removed. ' +
   '1.1: an heir\'s account kept by another heir (expenses, other money in, repeating charges, money held). The keeper\'s phone can write only those three tabs; the custodian can view them; other heirs never receive them. Adds tabs AF_EXP, AF_IN, AF_RECUR, AF_HELD and settings fund_for and fund_keeper. Nothing removed. ' +
   '1.0: first version. Ledger tabs for income, outflows, payments to heirs, TBZ months, money back to fund and opening balances; ' +
@@ -726,7 +726,7 @@ function apiInvite_(b, who) {
   } finally { lock.releaseLock(); }
 }
 // Activity of everyone except the custodian, newest first (custodian only).
-var DID_ACTIONS = { summary_pdf: 'downloaded the summary PDF', statement_pdf: 'downloaded the account statement PDF' };
+var DID_ACTIONS = { summary_pdf: 'downloaded the summary PDF', summary_xlsx: 'downloaded the all years summary', statement_pdf: 'downloaded the account statement PDF' };
 function quietAudit_(rows) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return;

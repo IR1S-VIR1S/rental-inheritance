@@ -1,6 +1,6 @@
 /* Rental Inheritance: offline iPhone app. Checks come from logic.js (generated from the workbook script); sums from calc.js. */
 'use strict';
-var BUILD_ID = '0ee74663';
+var BUILD_ID = 'ca28178a';
 var STORE = 'ri.v1';
 var BIO = 'ri.bio';
 var IDLE_MS = 5 * 60 * 1000;
@@ -1206,8 +1206,9 @@ SCREENS.summary = function () {
       el('input', { id: 'qtotal', inputmode: 'numeric', autocomplete: 'off', oninput: function (e) { drawQ(e.target.value); } }), qOut,
       el('p', { class: 'hint', text: 'Split in sevenths as set under Heirs and shares in Settings.' }),
       isCust() && !R.closed ? btn('primary wide', 'plus', 'Record a Qurbani', function () { openQurbani(); }, 'recq') : null),
-    el('h2', null, svg('doc'), 'Download'),
+    el('h2', null, svg('doc'), 'Download', qm('All years summary')),
     btn('primary wide', 'doc', 'Summary as PDF', function () { shareFile(new Blob([pdfSummary(R)], { type: 'application/pdf' }), 'Rental_Inheritance_Summary_' + R.fy + '.pdf'); noteAct('summary_pdf', R.fy); }, 'pdfbtn'),
+    btn('wide', 'sheet', 'All years summary for Numbers', function () { shareFile(new Blob([xlsxSummaryAll(D, todayPk())], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Rental_Inheritance_All_Years_' + todayPk() + '.xlsx'); noteAct('summary_xlsx', 'all'); }, 'numbersbtn'),
     isCust() ? btn('wide', 'sheet', 'Full ledger as Excel', function () { shareFile(new Blob([xlsxLedger(D, R)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Rental_Inheritance_Ledger_' + todayPk() + '.xlsx'); }, 'xlsxbtn') : null);
 };
 function shareFile(blob, name) {
@@ -1334,6 +1335,7 @@ function glossaryTerms(D) {
     ['Cash', 'Difference', 'Actual bank and cash less "Should be in hand". Zero means everything is entered. Plus = more money than the ledger explains (an income not entered?). Minus = less (a payment or outflow not entered?).'],
     ['Cash', 'Fund', 'Money that is not divided, mainly loans repaid. Outflows taken from the Fund (often given on as charity) are not charged to the pool.'],
     ['Cash', 'Money back to fund', 'A loan repaid. It goes into the Fund, not into the income that is divided.'],
+    ['Totals', 'All years summary', 'A spreadsheet of the whole ledger: one row a year (income, outflows, net, heirs\u2019 entitlement, received, pending, fund, cash), each heir by year, each heir over all years, and the year summary of every year. It opens in Numbers on iPhone (share sheet > Numbers) and in Excel. Apple does not let other apps write the Numbers format itself, so it is an .xlsx file that Numbers converts on opening.'],
     ['Cash', 'Fund balance', 'All money back to the fund so far, less everything paid from the Fund.'],
     ['Cash', 'Loan given', 'An outflow category for money lent from the pool. It is not chased; if it ever comes back, enter it as Money back to fund.'],
     [tb + ' and ' + fx, tb, 'Rent collected by ' + tc + ' and kept by him as part of his share.'],

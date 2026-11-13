@@ -170,6 +170,7 @@ function sheetXml(rows, widths) {
       if (c === null || c === undefined || c.v === '' || c.v === null || c.v === undefined) return;
       var ref = colName(ci) + (ri + 1);
       if (c.t === 'n') x += '<c r="' + ref + '" s="3"><v>' + Number(c.v) + '</v></c>';
+      else if (c.t === 'f') x += '<c r="' + ref + '" s="4"><f>' + xmlEsc(c.f) + '</f><v>' + Number(c.v) + '</v></c>';
       else if (c.t === 'd') x += '<c r="' + ref + '" s="1"><v>' + dateSerial(c.v) + '</v></c>';
       else x += '<c r="' + ref + '" t="inlineStr"' + (c.t === 'h' ? ' s="2"' : '') + '><is><t xml:space="preserve">' + xmlEsc(c.v) + '</t></is></c>';
     });
@@ -192,13 +193,58 @@ function tabSheet(D, tab) {
   });
   return sheetXml([head].concat(rows), [9].concat(S.fyFrom ? [9] : [], keys.map(function (k) { var t = S.fields[k].t; return t === 'text' ? 28 : t === 'date' ? 12 : 14; }), tab === 'PAYMENTS' ? [16, 16, 30, 18] : [], [19, 12, 19, 12]));
 }
-function xlsxLedger(D, R) {
-  var sheets = [{ name: 'Summary ' + R.fy, xml: sheetXml([[{ v: 'Item', t: 'h' }, { v: 'Value', t: 'h' }]].concat(summaryRows(R).map(function (r) {
+function yearSummarySheet(R) {
+  return sheetXml([[{ v: 'Item', t: 'h' }, { v: 'Value', t: 'h' }]].concat(summaryRows(R).map(function (r) {
     return [{ v: r[0], t: 's' }, typeof r[1] === 'number' ? { v: r[1], t: 'n' } : { v: String(r[1]), t: 's' }];
-  })), [44, 18]) }];
+  })), [44, 18]);
+}
+function xlsxLedger(D, R) {
+  var sheets = [{ name: 'Summary ' + R.fy, xml: yearSummarySheet(R) }];
   [['INCOME', 'Income'], ['OUTFLOWS', 'Outflows'], ['PAYMENTS', 'Payments'], ['TBZ', 'TBZ'], ['FUND_IN', 'Back to fund'], ['OPENING', 'Opening'], ['HEIRS', 'Heirs'], ['TBZ_RATES', 'TBZ rates']]
     .forEach(function (x) { sheets.push({ name: x[1], xml: tabSheet(D, x[0]) }); });
   [['AF_EXP', 'Account expenses'], ['AF_IN', 'Account other money in'], ['AF_RECUR', 'Repeating charges'], ['AF_HELD', 'Money held']].forEach(function (x) { if ((D.tables[x[0]] || []).length) sheets.push({ name: x[1], xml: tabSheet(D, x[0]) }); });
+  return xlsxBook(sheets);
+}
+// Summary of the whole ledger, every year, for Apple Numbers (opens an .xlsx straight from the share sheet) or Excel.
+// Sheets: All years (one row a year, totals as formulas), Heirs by year, Heirs all years, then one summary sheet per year.
+function xlsxSummaryAll(D, today) {
+  var years = allYears(D, today), Rs = years.map(function (fy) { return yearCalc(D, fy, today); });
+  function n(v) { return v === null || v === undefined || v === '' || isNaN(Number(v)) ? null : { v: Math.round(Number(v)), t: 'n' }; }
+  function h(v) { return { v: v, t: 'h' }; }
+  function total(rows, cols, first, last) {
+    return cols.map(function (c, i) {
+      if (!c) return i === 0 ? h('Total') : null;
+      var col = colName(i), sum = rows.reduce(function (s, r) { return s + (r[i] && r[i].t === 'n' ? r[i].v : 0); }, 0);
+      return { t: 'f', f: 'SUM(' + col + first + ':' + col + last + ')', v: sum };
+    });
+  }
+  // 1. all years
+  var head1 = ['Year', 'Status', 'Gross income', 'Charged to pool', 'Net to divide', 'Heirs\u2019 entitlement', 'Received by heirs', 'Pending to heirs (year end)', 'Fund balance', 'Cash should be in hand', 'Cash actual', (Rs.length ? Rs[Rs.length - 1].patoki.name : 'Fixed lease') + ' still due', (Rs.length ? Rs[Rs.length - 1].tbz.name : 'Monthly rent') + ' kept', 'Items to check'];
+  var rows1 = Rs.map(function (R) {
+    return [{ v: R.fy, t: 's' }, { v: R.closed ? 'Closed' : 'Open', t: 's' }, n(R.gross), n(R.charged), n(R.net), n(R.totals.entitlement), n(R.totals.received), n(R.totals.pending),
+      n(R.fund.balance), n(R.cash.shouldHave), n(R.cash.actual), n(R.patoki.due), n(R.tbz.net), n(R.checks.length)];
+  });
+  var sumCols = [0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0];
+  var sheet1 = [head1.map(h)].concat(rows1, rows1.length ? [total(rows1, sumCols, 2, rows1.length + 1)] : []);
+  // 2. heirs by year
+  var rows2 = [];
+  Rs.forEach(function (R) { R.heirs.forEach(function (x) { rows2.push([{ v: R.fy, t: 's' }, { v: x.name, t: 's' }, { v: x.shareText, t: 's' }, n(x.opening), n(x.entitlement), n(x.received), n(x.pending), { v: x.carry, t: 's' }]); }); });
+  var sheet2 = [['Year', 'Heir', 'Share', 'Opening', 'Entitlement', 'Received', 'Pending', 'Carry forward'].map(h)].concat(rows2);
+  // 3. heirs, all years together; pending is the latest year's
+  var names = [], by = {};
+  Rs.forEach(function (R) { R.heirs.forEach(function (x) {
+    if (!by[x.name]) { by[x.name] = { ent: 0, rec: 0, pend: 0, share: x.shareText }; names.push(x.name); }
+    by[x.name].ent += x.entitlement; by[x.name].rec += x.received; by[x.name].pend = x.pending; by[x.name].share = x.shareText;
+  }); });
+  var rows3 = names.map(function (k) { var b = by[k]; return [{ v: k, t: 's' }, { v: b.share, t: 's' }, n(b.ent), n(b.rec), n(b.pend)]; });
+  var sheet3 = [['Heir', 'Share', 'Entitlement, all years', 'Received, all years', 'Pending now'].map(h)].concat(rows3, rows3.length ? [total(rows3, [0, 0, 1, 1, 1], 2, rows3.length + 1)] : []);
+  var sheets = [{ name: 'All years', xml: sheetXml(sheet1, [10, 9, 15, 15, 15, 17, 17, 19, 14, 18, 14, 15, 13, 10]) },
+    { name: 'Heirs by year', xml: sheetXml(sheet2, [10, 16, 8, 14, 15, 15, 15, 15]) },
+    { name: 'Heirs all years', xml: sheetXml(sheet3, [16, 8, 20, 20, 15]) }];
+  Rs.slice().reverse().forEach(function (R) { sheets.push({ name: 'Year ' + R.fy, xml: yearSummarySheet(R) }); });
+  return xlsxBook(sheets);
+}
+function xlsxBook(sheets) {
   var files = [
     { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
       sheets.map(function (s, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') + '</Types>' },
@@ -211,7 +257,7 @@ function xlsxLedger(D, R) {
     { name: 'xl/styles.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="d mmm yyyy"/></numFmts>' +
       '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
       '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-      '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' }
+      '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' }
   ].concat(sheets.map(function (s, i) { return { name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: s.xml }; }));
   return zipStore(files);
 }
